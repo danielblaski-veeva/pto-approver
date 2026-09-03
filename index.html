@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Veeva Budapest Office: Approved PTO! - 16-Bit Beat-'Em-Up</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/src/styles.css" />
+</head>
+<body>
+  <div id="arcade-container" class="arcade-container">
+    <!-- Main Game Canvas -->
+    <canvas id="game-canvas" width="960" height="540"></canvas>
+    <div id="scanline-overlay" class="scanlines"></div>
+
+    <!-- HUD Overlay Top Bar -->
+    <div id="hud" class="hud-overlay hidden">
+      <!-- Player Status Left -->
+      <div class="hud-player-info">
+        <div class="hud-portrait-frame">
+          <canvas id="portrait-canvas" width="48" height="48"></canvas>
+        </div>
+        <div class="hud-stats">
+          <div class="hud-name-row">
+            <span id="player-name">DEV DAVE</span>
+            <span id="player-hp-text">100%</span>
+          </div>
+          <!-- Health Bar -->
+          <div class="hud-bar-bg hp-bar">
+            <div id="hp-bar-ghost" class="hud-bar-ghost" style="width: 100%;"></div>
+            <div id="hp-bar-fill" class="hud-bar-fill hp-fill" style="width: 100%;"></div>
+          </div>
+          <!-- Special Meter -->
+          <div class="hud-bar-bg sp-bar">
+            <div id="sp-bar-fill" class="hud-bar-fill sp-fill" style="width: 100%;"></div>
+            <span class="sp-label">SPECIAL (C / Y)</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Center Stage & Timer Info -->
+      <div class="hud-center-info">
+        <div id="stage-title" class="hud-stage-title">STAGE 1: RECEPTION</div>
+        <div class="hud-timer-container">
+          <span class="hud-label">TIME</span>
+          <span id="hud-timer">05:00</span>
+        </div>
+      </div>
+
+      <!-- Right Side Score & Combo -->
+      <div class="hud-score-info">
+        <div class="hud-score-row">
+          <span class="hud-label">SCORE:</span>
+          <span id="hud-score">000,000</span>
+        </div>
+        <div id="hud-combo-box" class="hud-combo-box hidden">
+          <span class="combo-label">COMBO</span>
+          <span id="hud-combo-count" class="combo-count">x15</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Top Notifications & Banners -->
+    <div id="banner-overlay" class="banner-overlay hidden">
+      <div id="banner-text" class="banner-text">STAGE 1: LOBBY & RECEPTION</div>
+    </div>
+
+    <!-- Title / Character Select Overlay Screen -->
+    <div id="screen-char-select" class="overlay-screen">
+      <div class="arcade-header">
+        <div class="veeva-logo-badge">Veeva</div>
+        <h1 class="game-title">APPROVED PTO!</h1>
+        <p class="game-subtitle">2D ARCADE BEAT-'EM-UP • VEEVA BUDAPEST OFFICE</p>
+      </div>
+
+      <h2 class="select-heading">CHOOSE YOUR ASSOCIATE</h2>
+
+      <div class="char-cards-container">
+        <!-- Tech Associate -->
+        <div class="char-card selected" data-char="tech">
+          <div class="char-portrait-box">
+            <canvas id="select-portrait-tech" width="80" height="80"></canvas>
+          </div>
+          <h3 class="char-title">TECHNICAL ASSOCIATE</h3>
+          <p class="char-role">"THE BRUISER"</p>
+          <div class="char-stats">
+            <div class="stat-line"><span>DMG:</span><div class="stat-bar"><div class="fill" style="width: 90%;"></div></div></div>
+            <div class="stat-line"><span>SPD:</span><div class="stat-bar"><div class="fill" style="width: 40%;"></div></div></div>
+            <div class="stat-line"><span>HP:</span><div class="stat-bar"><div class="fill" style="width: 100%;"></div></div></div>
+          </div>
+          <p class="weapon-desc"><strong>Weapon:</strong> Glowing Mech Keyboard</p>
+          <p class="special-desc"><strong>Special:</strong> <em>Code Freeze</em> (Stuns All Enemies)</p>
+        </div>
+
+        <!-- Support Associate -->
+        <div class="char-card" data-char="support">
+          <div class="char-portrait-box">
+            <canvas id="select-portrait-support" width="80" height="80"></canvas>
+          </div>
+          <h3 class="char-title">SUPPORT ASSOCIATE</h3>
+          <p class="char-role">"THE SPEEDSTER"</p>
+          <div class="char-stats">
+            <div class="stat-line"><span>DMG:</span><div class="stat-bar"><div class="fill" style="width: 60%;"></div></div></div>
+            <div class="stat-line"><span>SPD:</span><div class="stat-bar"><div class="fill" style="width: 95%;"></div></div></div>
+            <div class="stat-line"><span>HP:</span><div class="stat-bar"><div class="fill" style="width: 70%;"></div></div></div>
+          </div>
+          <p class="weapon-desc"><strong>Weapon:</strong> Ethernet Cable Whip</p>
+          <p class="special-desc"><strong>Special:</strong> <em>Ticket Escalation</em> (Whirlwind Spin)</p>
+        </div>
+
+        <!-- Professional Service Associate -->
+        <div class="char-card" data-char="psa">
+          <div class="char-portrait-box">
+            <canvas id="select-portrait-psa" width="80" height="80"></canvas>
+          </div>
+          <h3 class="char-title">PS ASSOCIATE</h3>
+          <p class="char-role">"THE ALL-ROUNDER"</p>
+          <div class="char-stats">
+            <div class="stat-line"><span>DMG:</span><div class="stat-bar"><div class="fill" style="width: 75%;"></div></div></div>
+            <div class="stat-line"><span>SPD:</span><div class="stat-bar"><div class="fill" style="width: 80%;"></div></div></div>
+            <div class="stat-line"><span>HP:</span><div class="stat-bar"><div class="fill" style="width: 80%;"></div></div></div>
+          </div>
+          <p class="weapon-desc"><strong>Weapon:</strong> Reinforced Tough Laptop</p>
+          <p class="special-desc"><strong>Special:</strong> <em>Scope Creep</em> (Homing Documents)</p>
+        </div>
+      </div>
+
+      <!-- Controls Guide -->
+      <div class="controls-guide-box">
+        <div class="control-col">
+          <span class="guide-title">KEYBOARD</span>
+          <span><strong>Move:</strong> Arrow Keys / WASD</span>
+          <span><strong>Attack:</strong> Z</span>
+          <span><strong>Jump:</strong> X</span>
+          <span><strong>Special:</strong> C</span>
+        </div>
+        <div class="control-divider"></div>
+        <div class="control-col">
+          <span class="guide-title">GAMEPAD / CONTROLLER</span>
+          <span><strong>Move:</strong> D-Pad / Left Stick</span>
+          <span><strong>Attack:</strong> X / Square</span>
+          <span><strong>Jump:</strong> A / Cross</span>
+          <span><strong>Special:</strong> Y / Triangle</span>
+        </div>
+      </div>
+
+      <button id="btn-start-game" class="arcade-btn pulse-glow">START MISSION [PRESS ENTER / A]</button>
+    </div>
+
+    <!-- Game Over / Victory Overlay Screen -->
+    <div id="screen-game-end" class="overlay-screen hidden">
+      <div id="end-card" class="end-card">
+        <h1 id="end-title" class="end-title">APPROVED PTO GRANTED!</h1>
+        <div id="end-badge" class="pto-badge-container">
+          <div class="pto-badge-stamp">APPROVED</div>
+          <p class="pto-text">VACATION REQUEST: 2 WEEKS FULL PAID PTO</p>
+        </div>
+        <p id="end-subtitle" class="end-subtitle">You cleared the Veeva Budapest office and defeated The Manager!</p>
+
+        <div class="final-stats-box">
+          <div class="stat-row"><span>FINAL SCORE:</span><span id="end-stat-score">000,000</span></div>
+          <div class="stat-row"><span>MAX COMBO:</span><span id="end-stat-combo">x0</span></div>
+          <div class="stat-row"><span>ENEMIES DEFEATED:</span><span id="end-stat-kills">0</span></div>
+          <div class="stat-row"><span>TIME REMAINING:</span><span id="end-stat-time">00:00</span></div>
+        </div>
+
+        <button id="btn-restart" class="arcade-btn">PLAY AGAIN [PRESS ENTER / A]</button>
+      </div>
+    </div>
+
+    <!-- Quick Audio & Settings Controls Bar -->
+    <div class="quick-tools">
+      <button id="btn-sound-toggle" class="tool-btn" title="Toggle Sound">🔊 SOUND: ON</button>
+      <button id="btn-scanlines-toggle" class="tool-btn" title="Toggle CRT Filter">📺 CRT: ON</button>
+    </div>
+
+    <!-- Mobile Touch On-Screen Controls -->
+    <div id="touch-controls" class="touch-controls hidden">
+      <div id="touch-dpad" class="touch-dpad">
+        <button class="dpad-btn up" data-dir="up">▲</button>
+        <button class="dpad-btn left" data-dir="left">◀</button>
+        <button class="dpad-btn right" data-dir="right">▶</button>
+        <button class="dpad-btn down" data-dir="down">▼</button>
+      </div>
+      <div class="touch-actions">
+        <button class="touch-btn special" data-action="special">C / Y<br><small>SPECIAL</small></button>
+        <button class="touch-btn jump" data-action="jump">X / A<br><small>JUMP</small></button>
+        <button class="touch-btn attack" data-action="attack">Z / X<br><small>ATTACK</small></button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/game/main.js"></script>
+</body>
+</html>
