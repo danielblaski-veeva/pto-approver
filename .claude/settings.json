@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '{\"systemMessage\": \"Session ending — run /cost and log your tokens in token_log.md (see CLAUDE.md).\"}'"
+          }
+        ]
+      }
+    ]
+  }
+}
