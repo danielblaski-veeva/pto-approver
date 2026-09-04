@@ -87,48 +87,47 @@ export class SpriteRenderer {
     else if (stageNum === 2) bgImg = this.images.stage2;
     else if (stageNum === 3) bgImg = this.images.stage3;
 
-    // 1. Draw Clean Parallax Background Image
+    // 1. Draw Parallax Background — one non-repeating image, drawn slightly wider
+    //    than the screen so it always covers it across the stage without tiling.
+    const stageScroll = cameraX - (stageNum - 1) * 800; // 0..~500 within a stage
+    const BG_W = 1320;                                  // parallax room beyond the 960 screen
+    const SCALE = BG_W / 960;                            // re-anchors old 960-based overlay offsets
+    const px = -(stageScroll * 0.7);                    // stage-relative parallax offset (no wrap)
+
     if (bgImg && bgImg.complete && bgImg.naturalWidth > 0) {
-      const px = - (cameraX * 0.7) % 960;
-      ctx.drawImage(bgImg, px, 0, 960, 540);
-      ctx.drawImage(bgImg, px + 960, 0, 960, 540);
-      if (px > 0) ctx.drawImage(bgImg, px - 960, 0, 960, 540);
+      ctx.drawImage(bgImg, px, 0, BG_W, 540);
     } else {
       ctx.fillStyle = '#151926';
       ctx.fillRect(0, 0, 960, 540);
     }
 
-    const px = - (cameraX * 0.7) % 960;
-
     // 2. Dynamic Environmental Effects per Stage
     if (stageNum === 1) {
       // --- STAGE 1: VEEVA LOBBY DYNAMICS ---
       // A. Organic Pulsing Glow on Veeva Backlit Logo
-      const logoScreenX = px + 215;
+      const logoScreenX = px + 215 * SCALE;
       const pulse = 0.55 + 0.25 * Math.sin(this.animTime * 0.07);
-      
-      [logoScreenX, logoScreenX + 960].forEach(lx => {
-        if (lx > -150 && lx < 1110) {
-          const grad = ctx.createRadialGradient(lx, 260, 20, lx, 260, 160);
-          grad.addColorStop(0, `rgba(242, 101, 34, ${0.45 * pulse})`);
-          grad.addColorStop(0.5, `rgba(255, 133, 51, ${0.2 * pulse})`);
-          grad.addColorStop(1, 'rgba(242, 101, 34, 0)');
-          ctx.fillStyle = grad;
-          ctx.fillRect(lx - 160, 100, 320, 300);
 
-          // Specular orange reflection on the polished floor
-          ctx.fillStyle = `rgba(242, 101, 34, ${0.12 * pulse})`;
-          ctx.beginPath();
-          ctx.ellipse(lx, 470, 110, 25, 0, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      });
+      if (logoScreenX > -160 && logoScreenX < 1120) {
+        const grad = ctx.createRadialGradient(logoScreenX, 260, 20, logoScreenX, 260, 160);
+        grad.addColorStop(0, `rgba(242, 101, 34, ${0.45 * pulse})`);
+        grad.addColorStop(0.5, `rgba(255, 133, 51, ${0.2 * pulse})`);
+        grad.addColorStop(1, 'rgba(242, 101, 34, 0)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(logoScreenX - 160, 100, 320, 300);
+
+        // Specular orange reflection on the polished floor
+        ctx.fillStyle = `rgba(242, 101, 34, ${0.12 * pulse})`;
+        ctx.beginPath();
+        ctx.ellipse(logoScreenX, 470, 110, 25, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
 
       // B. Volumetric Ceiling Spotlights with Drifting Dust Motes
       const spotlightPositions = [178, 312, 410, 485, 642, 678, 840, 905];
       spotlightPositions.forEach(sx => {
-        const lightX = ((px * 0.9) + sx) % 960;
-        const normalizedX = lightX < 0 ? lightX + 960 : lightX;
+        const normalizedX = px + sx * SCALE;
+        if (normalizedX < -80 || normalizedX > 1040) return;
 
         const lightGrad = ctx.createLinearGradient(normalizedX, 60, normalizedX, 480);
         lightGrad.addColorStop(0, 'rgba(255, 235, 190, 0.14)');
@@ -156,8 +155,8 @@ export class SpriteRenderer {
       // A. Animated Computer Screens (Scrolling cyan/green code lines & blinking terminal cursor)
       const monitorXCoords = [218, 486, 742, 986];
       monitorXCoords.forEach((mx, idx) => {
-        const monX = ((px) + mx) % 960;
-        const screenX = monX < 0 ? monX + 960 : monX;
+        const screenX = px + mx * SCALE;
+        if (screenX < -60 || screenX > 1020) return;
         const screenY = 296;
 
         // Screen bezel interior
@@ -198,8 +197,8 @@ export class SpriteRenderer {
       // A. Espresso Coffee Machine Billowing Steam
       const espressoXCoords = [602, 694];
       espressoXCoords.forEach((ex, idx) => {
-        const machineX = ((px) + ex) % 960;
-        const screenX = machineX < 0 ? machineX + 960 : machineX;
+        const screenX = px + ex * SCALE;
+        if (screenX < -40 || screenX > 1000) return;
 
         for (let s = 0; s < 3; s++) {
           const steamLife = (this.animTime * 0.6 + s * 14 + idx * 8) % 45;
@@ -221,8 +220,8 @@ export class SpriteRenderer {
       const swayAngle = Math.sin(this.animTime * 0.12) * (this.lampSway * 0.14);
 
       lampPositions.forEach(lx => {
-        const lampScreenX = ((px) + lx) % 960;
-        const actualX = lampScreenX < 0 ? lampScreenX + 960 : lampScreenX;
+        const actualX = px + lx * SCALE;
+        if (actualX < -60 || actualX > 1020) return;
         const pivotY = 50;
         const cordLength = 80;
 
