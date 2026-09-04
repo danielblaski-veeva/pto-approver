@@ -15,9 +15,11 @@ Per-person Claude usage tracking for the team. **Log a row at the end of each Cl
 
 ## Running totals
 
-| Person | Sessions | Tokens in | Tokens out | Cost (USD) |
-| :----- | -------: | --------: | ---------: | ---------: |
-| Daniel Blaski | 1 | — | — | — |
-| Krisztian Hajdu | 0 | — | — | — |
-| Gergely Juhasz | 0 | — | — | — |
-| **Total** | | | | |
+_Find your Claude login email in Claude Code via `/status` (or the account menu)._
+
+| Person | Claude user (email) | Sessions | Tokens in | Tokens out | Cost (USD) |
+| :----- | :------------------ | -------: | --------: | ---------: | ---------: |
+| Daniel Blaski | daniel.blaski@veeva.com | 1 | — | — | — |
+| Krisztian Hajdu | _TBD — fill in Claude login_ | 0 | — | — | — |
+| Gergely Juhasz | _TBD — fill in Claude login_ | 0 | — | — | — |
+| **Total** | | | | | |
