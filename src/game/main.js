@@ -188,6 +188,9 @@ class GameApp {
     this.player.update(input, this.enemies, this.projectiles, this.particles, triggerShake);
     const camX = this.stageMgr.updateCamera(this.player.x);
 
+    // Keep the player within the visible screen band (no walking off-camera)
+    this.player.x = Math.max(camX + 40, Math.min(this.player.x, camX + 920));
+
     if (this.player.combo > this.maxCombo) this.maxCombo = this.player.combo;
 
     // Update Enemies

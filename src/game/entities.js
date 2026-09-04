@@ -96,8 +96,8 @@ export class Player {
       this.specialName = 'Scope Creep';
     }
 
-    this.specialMeter = 100;
-    this.attackCount = 0;
+    this.specialMeter = 0;
+    this.attackCombo = 0;
     this.attackTimer = 0;
     this.invincibleTimer = 0;
     this.combo = 0;
@@ -160,22 +160,27 @@ export class Player {
   }
 
   executeAttack(enemies, particles, triggerShake) {
+    this.attackCombo = (this.attackCombo || 0) + 1;
+    const isFinisher = this.attackCombo % 3 === 0; // every 3rd hit is a finisher
+
     this.state = 'attack';
-    this.attackTimer = 18;
-    this.attackCombo = ((this.attackCombo || 0) + 1) % 3;
+    this.attackTimer = isFinisher ? 26 : 18;
+    const atkDamage = isFinisher ? this.damage * 2 : this.damage;
+    const knockback = isFinisher ? 18 : 8;
     sound.playSwing();
 
     let hitAny = false;
     enemies.forEach(e => {
-      if (physics.checkHit(this, e, 70, 30, 45)) {
-        e.takeDamage(this.damage, this.facingLeft ? -8 : 8);
+      if (physics.checkHit(this, e, isFinisher ? 85 : 70, 30, 45)) {
+        e.takeDamage(atkDamage, this.facingLeft ? -knockback : knockback);
         hitAny = true;
         this.combo++;
-        this.score += 150;
+        this.score += isFinisher ? 400 : 150;
 
         // Hit Spark Particles & Popup Text
-        for (let i = 0; i < 6; i++) {
-          particles.push(new Particle(e.x, e.y, 25, (Math.random()-0.5)*8, (Math.random()-0.5)*4, Math.random()*6, '#FFD700', 4, 18));
+        const sparkCount = isFinisher ? 12 : 6;
+        for (let i = 0; i < sparkCount; i++) {
+          particles.push(new Particle(e.x, e.y, 25, (Math.random()-0.5)*8, (Math.random()-0.5)*4, Math.random()*6, isFinisher ? '#FF8800' : '#FFD700', 4, 18));
         }
 
         if (e.type === 'grunt') {
@@ -185,9 +190,9 @@ export class Player {
           }
         }
 
-        particles.push(new Particle(e.x, e.y, 40, 0, -0.5, 2, '#FFFF00', 12, 30, 'SMASH!'));
+        particles.push(new Particle(e.x, e.y, 40, 0, -0.5, 2, isFinisher ? '#FF5522' : '#FFFF00', 12, 30, isFinisher ? 'FIRED!' : 'SMASH!'));
         triggerShake();
-        spriteRenderer.triggerLampImpulse(0.7);
+        spriteRenderer.triggerLampImpulse(isFinisher ? 1.4 : 0.7);
       }
     });
 
@@ -235,6 +240,7 @@ export class Player {
     this.hp -= amount;
     this.invincibleTimer = 40;
     this.combo = 0;
+    this.attackCombo = 0;
     sound.playHit();
 
     if (this.hp <= 0) {

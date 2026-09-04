@@ -34,15 +34,17 @@ export class InputHandler {
       const code = e.code;
       const key = e.key.toLowerCase();
 
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(code)) e.preventDefault();
+
       if (code === 'ArrowUp' || key === 'w') this.keys.up = true;
       if (code === 'ArrowDown' || key === 's') this.keys.down = true;
       if (code === 'ArrowLeft' || key === 'a') this.keys.left = true;
       if (code === 'ArrowRight' || key === 'd') this.keys.right = true;
 
-      if (key === 'z') this.keys.attack = true;
-      if (key === 'x') this.keys.jump = true;
-      if (key === 'c') this.keys.special = true;
-      if (code === 'Enter' || code === 'Space') this.keys.start = true;
+      if (key === 'z' || key === 'j') this.keys.attack = true;
+      if (key === 'x' || key === 'k' || code === 'Space') this.keys.jump = true;
+      if (key === 'c' || key === 'l') this.keys.special = true;
+      if (code === 'Enter') this.keys.start = true;
     });
 
     window.addEventListener('keyup', (e) => {
@@ -54,10 +56,10 @@ export class InputHandler {
       if (code === 'ArrowLeft' || key === 'a') this.keys.left = false;
       if (code === 'ArrowRight' || key === 'd') this.keys.right = false;
 
-      if (key === 'z') this.keys.attack = false;
-      if (key === 'x') this.keys.jump = false;
-      if (key === 'c') this.keys.special = false;
-      if (code === 'Enter' || code === 'Space') this.keys.start = false;
+      if (key === 'z' || key === 'j') this.keys.attack = false;
+      if (key === 'x' || key === 'k' || code === 'Space') this.keys.jump = false;
+      if (key === 'c' || key === 'l') this.keys.special = false;
+      if (code === 'Enter') this.keys.start = false;
     });
   }
 
