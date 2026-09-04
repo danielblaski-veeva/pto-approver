@@ -12,6 +12,14 @@
 - **Build:** `npm run build`
 - **Stack:** Plain JavaScript, no framework. Source in `src/` (`engine/`, `game/`, `graphics/`, `audio/`). Art in `public/assets/`.
 
+## Project commands (Claude Code slash commands)
+
+Committed in `.claude/commands/` — available to everyone who pulls the repo:
+
+- **`/dev`** — start the dev server on port 8080 (skips if one is already running).
+- **`/push [message]`** — commit the current work and push the feature branch, following the workflow below (won't commit to `main`, checks the push account, offers a PR).
+- **`/log-tokens`** — append this session's `/cost` figures to `token_log.md`.
+
 ---
 
 ## Git workflow (every session)
