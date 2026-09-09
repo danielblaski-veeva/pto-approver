@@ -2,6 +2,7 @@
 
 import { spriteRenderer, COLOR_PALETTE } from '../graphics/sprites.js';
 import { input } from '../engine/input.js';
+import { physics } from '../engine/physics.js';
 import { sound } from '../audio/sound.js';
 import { Player, PTOItem } from './entities.js';
 import { StageManager } from './stages.js';
@@ -28,6 +29,7 @@ class GameApp {
     this.timeCounter = 0;
     this.maxCombo = 0;
     this.totalKills = 0;
+    this.hitStopTimer = 0;   // frames of impact-freeze remaining
 
     this.initDOMEvents();
     this.renderCharacterSelectPortraits();
@@ -128,6 +130,7 @@ class GameApp {
     sound.stopBGM();
     document.getElementById('screen-game-end').classList.add('hidden');
     document.getElementById('hud').classList.add('hidden');
+    document.getElementById('boss-bar').classList.add('hidden');
     document.getElementById('screen-char-select').classList.remove('hidden');
     this.renderCharacterSelectPortraits();
     this.state = 'CHAR_SELECT';
@@ -175,6 +178,13 @@ class GameApp {
   }
 
   updateGameplay() {
+    // Impact freeze (hitstop): hold the current frame for a few ticks to sell the blow.
+    // renderGameplay() still runs from loop(), so the frozen frame stays on screen.
+    if (this.hitStopTimer > 0) {
+      this.hitStopTimer--;
+      return;
+    }
+
     this.timeCounter++;
     if (this.timeCounter % 60 === 0 && this.gameTimeSeconds > 0) {
       this.gameTimeSeconds--;
@@ -185,7 +195,8 @@ class GameApp {
 
     // Update Player & Camera
     const triggerShake = () => this.triggerScreenShake();
-    this.player.update(input, this.enemies, this.projectiles, this.particles, triggerShake);
+    const triggerHitstop = (frames) => { this.hitStopTimer = Math.max(this.hitStopTimer, frames); };
+    this.player.update(input, this.enemies, this.projectiles, this.particles, triggerShake, triggerHitstop);
     const camX = this.stageMgr.updateCamera(this.player.x);
 
     // Keep the player within the visible screen band (no walking off-camera)
@@ -196,7 +207,7 @@ class GameApp {
     // Update Enemies
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const e = this.enemies[i];
-      e.update(this.player, this.projectiles, this.particles, triggerShake);
+      e.update(this.player, this.projectiles, this.particles, triggerShake, triggerHitstop);
 
       if (e.isDead) {
         this.totalKills++;
@@ -209,6 +220,23 @@ class GameApp {
 
         this.enemies.splice(i, 1);
       }
+    }
+
+    // Body Separation — actors can't merge (soft mutual push); downed bodies don't block
+    const living = this.enemies.filter(e => !e.dying && !e.isDead);
+    for (const e of living) {
+      physics.resolveBodies(this.player, e);
+    }
+    for (let a = 0; a < living.length; a++) {
+      for (let b = a + 1; b < living.length; b++) {
+        physics.resolveBodies(living[a], living[b]);
+      }
+    }
+    // Re-clamp after pushes so nobody gets shoved off-camera or out of the floor band
+    this.player.x = Math.max(camX + 40, Math.min(this.player.x, camX + 920));
+    this.player.y = Math.max(physics.floorYMin, Math.min(this.player.y, physics.floorYMax));
+    for (const e of this.enemies) {
+      e.y = Math.max(physics.floorYMin, Math.min(e.y, physics.floorYMax));
     }
 
     // Wave Progression
@@ -272,6 +300,17 @@ class GameApp {
 
     document.getElementById('hud-score').innerText = this.player.score.toString().padStart(6, '0');
 
+    // Final-boss (manager) HP bar, top-right — shown only while it lives
+    const bossBar = document.getElementById('boss-bar');
+    const boss = this.enemies.find(e => e.type === 'manager' && !e.dying && !e.isDead);
+    if (boss) {
+      bossBar.classList.remove('hidden');
+      const bossPct = Math.max(0, Math.floor((boss.hp / boss.maxHp) * 100));
+      document.getElementById('boss-bar-fill').style.width = `${bossPct}%`;
+    } else {
+      bossBar.classList.add('hidden');
+    }
+
     const comboDiv = document.getElementById('hud-combo-box');
     if (this.player.combo >= 2) {
       comboDiv.classList.remove('hidden');
@@ -323,6 +362,13 @@ class GameApp {
     });
 
     this.projectiles.forEach(p => spriteRenderer.drawProjectile(this.ctx, p));
+
+    // Floating HP bars above living mid-bosses (drawn last so they sit on top)
+    this.enemies.forEach(e => {
+      if (e.type === 'midboss' && !e.dying && !e.isDead) {
+        spriteRenderer.drawEnemyHealthBar(this.ctx, e);
+      }
+    });
 
     this.ctx.restore();
 
