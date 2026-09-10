@@ -87,12 +87,14 @@ export class SpriteRenderer {
     else if (stageNum === 2) bgImg = this.images.stage2;
     else if (stageNum === 3) bgImg = this.images.stage3;
 
-    // 1. Draw Parallax Background — one non-repeating image, drawn slightly wider
-    //    than the screen so it always covers it across the stage without tiling.
+    // 1. Draw Background 1:1 with the world so the traced floor path stays glued
+    //    to the painted floor (no parallax drift). The image is drawn wide enough
+    //    (1460 = 960 screen + 500 stage scroll) that its right edge is always
+    //    reached as the camera pans across the stage.
     const stageScroll = cameraX - (stageNum - 1) * 800; // 0..~500 within a stage
-    const BG_W = 1320;                                  // parallax room beyond the 960 screen
+    const BG_W = 1460;                                  // full stage-scroll coverage
     const SCALE = BG_W / 960;                            // re-anchors old 960-based overlay offsets
-    const px = -(stageScroll * 0.7);                    // stage-relative parallax offset (no wrap)
+    const px = -stageScroll;                            // 1:1 world scroll (image fixed at stage origin)
 
     if (bgImg && bgImg.complete && bgImg.naturalWidth > 0) {
       ctx.drawImage(bgImg, px, 0, BG_W, 540);
