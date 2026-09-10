@@ -5,7 +5,7 @@ import { input } from '../engine/input.js';
 import { physics } from '../engine/physics.js';
 import { sound } from '../audio/sound.js';
 import { Player, PTOItem } from './entities.js';
-import { StageManager } from './stages.js';
+import { StageManager, getWalkableLocal, setWalkableLocal } from './stages.js';
 
 class GameApp {
   constructor() {
@@ -30,6 +30,15 @@ class GameApp {
     this.maxCombo = 0;
     this.totalKills = 0;
     this.hitStopTimer = 0;   // frames of impact-freeze remaining
+
+    this.debugCollision = false; // 'B' toggles the walkable-path overlay
+
+    // --- Path editor state (press 'P' during gameplay) ---
+    this.editMode = false;
+    this.editStage = 1;
+    this.editCamX = 0;      // camera used while editing (pan with A/D or arrows)
+    this.editPoly = [];     // working polygon (stage-local [x,y] points)
+    this.editKeys = new Set(); // keys held down in edit mode (for smooth panning)
 
     this.initDOMEvents();
     this.renderCharacterSelectPortraits();
@@ -71,6 +80,33 @@ class GameApp {
       soundBtn.innerText = isOn ? '🔊 SOUND: ON' : '🔇 SOUND: OFF';
     });
 
+    // Dev keys: 'B' toggles the walkable-path overlay, 'P' opens the path editor.
+    window.addEventListener('keydown', (e) => {
+      const k = e.key.toLowerCase();
+      if (k === 'b') {
+        this.debugCollision = !this.debugCollision;
+      } else if (k === 'p') {
+        this.toggleEditMode();
+      } else if (this.editMode) {
+        this.editKeys.add(k);          // track held keys for smooth panning
+        this.handleEditKey(k, e);
+      }
+    });
+    window.addEventListener('keyup', (e) => {
+      this.editKeys.delete(e.key.toLowerCase());
+    });
+
+    // Path editor: click on the canvas to append a polygon vertex.
+    this.canvas.addEventListener('click', (e) => {
+      if (!this.editMode) return;
+      const rect = this.canvas.getBoundingClientRect();
+      const sx = (e.clientX - rect.left) * (960 / rect.width);
+      const sy = (e.clientY - rect.top) * (540 / rect.height);
+      // Screen → stage-local: local x = screen x + how far we've scrolled into the stage.
+      const localX = Math.round(sx + (this.editCamX - (this.editStage - 1) * 800));
+      this.editPoly.push([localX, Math.round(sy)]);
+    });
+
     const scanlineBtn = document.getElementById('btn-scanlines-toggle');
     const scanlinesDiv = document.getElementById('scanline-overlay');
     scanlineBtn.addEventListener('click', () => {
@@ -108,6 +144,12 @@ class GameApp {
     this.projectiles = [];
     this.particles = [];
     this.ptoItem = null;
+
+    // Drop the player onto the stage's walkable path.
+    physics.setWalkable(this.stageMgr.getWalkable());
+    const spawn = physics.clampSpawn(this.player.x, this.player.y);
+    this.player.x = spawn.x;
+    this.player.y = spawn.y;
 
     this.gameTimeSeconds = 300;
     this.maxCombo = 0;
@@ -149,6 +191,15 @@ class GameApp {
 
   spawnNextWave() {
     const newEnemies = this.stageMgr.spawnWave(this.player.x);
+
+    // Keep every enemy inside the walkable path they spawn onto.
+    physics.setWalkable(this.stageMgr.getWalkable());
+    newEnemies.forEach(e => {
+      const s = physics.clampSpawn(e.x, e.y);
+      e.x = s.x;
+      e.y = s.y;
+    });
+
     this.enemies.push(...newEnemies);
 
     if (this.stageMgr.currentStage === 3 && this.stageMgr.bossSpawned) {
@@ -159,6 +210,12 @@ class GameApp {
 
   loop() {
     input.update();
+
+    if (this.editMode) {
+      this.renderEditor();
+      requestAnimationFrame(() => this.loop());
+      return;
+    }
 
     if (this.state === 'CHAR_SELECT') {
       if (input.justPressed.start) {
@@ -192,6 +249,10 @@ class GameApp {
         this.player.takeDamage(999);
       }
     }
+
+    // Feed the active stage's walkable floor path into the physics engine so
+    // player/enemy movement is clamped to it.
+    physics.setWalkable(this.stageMgr.getWalkable());
 
     // Update Player & Camera
     const triggerShake = () => this.triggerScreenShake();
@@ -363,6 +424,8 @@ class GameApp {
 
     this.projectiles.forEach(p => spriteRenderer.drawProjectile(this.ctx, p));
 
+    if (this.debugCollision) this.drawWalkableOutline(this.stageMgr.getWalkable());
+
     // Floating HP bars above living mid-bosses (drawn last so they sit on top)
     this.enemies.forEach(e => {
       if (e.type === 'midboss' && !e.dying && !e.isDead) {
@@ -374,6 +437,134 @@ class GameApp {
 
     // Draw Particles on Top
     this.particles.forEach(pt => pt.draw(this.ctx, camX));
+  }
+
+  // Dev overlay (toggle 'B'). Runs inside the camera-translated context, so the
+  // world-space polygon draws directly. `poly` = world-space [[x,y],...].
+  drawWalkableOutline(poly) {
+    if (!poly || poly.length < 2) return;
+    this.ctx.save();
+    this.ctx.beginPath();
+    this.ctx.moveTo(poly[0][0], poly[0][1]);
+    for (let i = 1; i < poly.length; i++) this.ctx.lineTo(poly[i][0], poly[i][1]);
+    this.ctx.closePath();
+    this.ctx.fillStyle = 'rgba(0, 255, 180, 0.10)';
+    this.ctx.fill();
+    this.ctx.strokeStyle = 'rgba(0, 255, 180, 0.9)';
+    this.ctx.lineWidth = 2;
+    this.ctx.stroke();
+    this.ctx.restore();
+  }
+
+  // ==========================================
+  // IN-GAME FLOOR PATH EDITOR (press 'P')
+  // Click to add polygon vertices on the background; the path is traced in
+  // stage-local coords so it stays glued to the art. Exports STAGE_WALKABLE.
+  // ==========================================
+  toggleEditMode() {
+    this.editMode = !this.editMode;
+    if (this.editMode) {
+      sound.stopBGM();
+      this.editStage = (this.state === 'GAMEPLAY') ? this.stageMgr.currentStage : 1;
+      this.loadEditStage(this.editStage);
+    }
+  }
+
+  loadEditStage(stage) {
+    this.editStage = stage;
+    this.editCamX = (stage - 1) * 800;          // start at the stage's left edge
+    this.editPoly = getWalkableLocal(stage);    // load existing path to refine
+  }
+
+  handleEditKey(k, e) {
+    if (k === 'z') {                             // undo last point
+      this.editPoly.pop();
+    } else if (k === 'x') {                      // clear all points
+      this.editPoly = [];
+    } else if (k === '1' || k === '2' || k === '3') {
+      this.saveEditStage();                      // keep current edits, switch stage
+      this.loadEditStage(parseInt(k, 10));
+    } else if (k === 's') {                      // apply this stage's path to live physics
+      this.saveEditStage();
+    } else if (k === 'enter') {                  // export all three to the console
+      this.saveEditStage();
+      this.exportWalkable();
+    }
+    // Prevent the page from scrolling while panning/using editor keys.
+    if (['z', 'x', 's', 'enter', '1', '2', '3', 'a', 'd', 'arrowleft', 'arrowright'].includes(k)) {
+      e.preventDefault();
+    }
+  }
+
+  // Continuous camera panning while A/D or arrow keys are held (called each frame).
+  updateEditPan() {
+    const minCam = (this.editStage - 1) * 800;
+    const maxCam = minCam + 500;
+    const left = this.editKeys.has('a') || this.editKeys.has('arrowleft');
+    const right = this.editKeys.has('d') || this.editKeys.has('arrowright');
+    if (left) this.editCamX = Math.max(minCam, this.editCamX - 9);
+    if (right) this.editCamX = Math.min(maxCam, this.editCamX + 9);
+  }
+
+  saveEditStage() {
+    if (this.editPoly.length >= 3) setWalkableLocal(this.editStage, this.editPoly);
+  }
+
+  exportWalkable() {
+    const fmt = (s) => '  ' + s + ': [' +
+      getWalkableLocal(s).map(p => `[${p[0]}, ${p[1]}]`).join(', ') + '],';
+    const out = 'const STAGE_WALKABLE = {\n' + [1, 2, 3].map(fmt).join('\n') + '\n};';
+    console.log('[PATH EDITOR] Paste into src/game/stages.js:\n' + out);
+  }
+
+  renderEditor() {
+    this.updateEditPan();
+
+    const ctx = this.ctx;
+    const stage = this.editStage;
+    const camX = this.editCamX;
+    const offset = (stage - 1) * 800;
+
+    ctx.clearRect(0, 0, 960, 540);
+    spriteRenderer.drawStageBackground(ctx, stage, camX);
+
+    // World→screen for the editor camera: screenX = localX + offset - camX.
+    const toScreen = (localX) => localX + offset - camX;
+
+    ctx.save();
+    if (this.editPoly.length > 0) {
+      ctx.beginPath();
+      ctx.moveTo(toScreen(this.editPoly[0][0]), this.editPoly[0][1]);
+      for (let i = 1; i < this.editPoly.length; i++) {
+        ctx.lineTo(toScreen(this.editPoly[i][0]), this.editPoly[i][1]);
+      }
+      if (this.editPoly.length >= 3) ctx.closePath();
+      ctx.fillStyle = 'rgba(0, 255, 180, 0.15)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0, 255, 180, 0.95)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      this.editPoly.forEach((p, i) => {           // vertices, first one highlighted
+        ctx.fillStyle = i === 0 ? '#FFD700' : '#00FFCC';
+        ctx.fillRect(toScreen(p[0]) - 4, p[1] - 4, 8, 8);
+      });
+    }
+    ctx.restore();
+
+    // Instruction panel
+    ctx.save();
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.72)';
+    ctx.fillRect(8, 8, 640, 100);
+    ctx.fillStyle = '#00FFCC';
+    ctx.font = 'bold 13px "Press Start 2P", monospace';
+    ctx.fillText(`PATH EDITOR - STAGE ${stage}  (${this.editPoly.length} pts)`, 18, 30);
+    ctx.fillStyle = '#DDD';
+    ctx.font = '11px monospace';
+    ctx.fillText('Click: add point   Z: undo   X: clear   A/D or arrows (hold): pan', 18, 54);
+    ctx.fillText('1/2/3: switch stage   S: apply to game   ENTER: export to console', 18, 72);
+    ctx.fillText('P: exit editor', 18, 90);
+    ctx.restore();
   }
 
   triggerEndGame(isVictory) {
