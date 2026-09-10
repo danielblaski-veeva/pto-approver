@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PTO Approver — Walkable Path Editor</title>
+<style>
+  :root {
+    --bg: #0e1016;
+    --panel: #171a24;
+    --panel-2: #1e2230;
+    --line: #2b3040;
+    --text: #dbe0ec;
+    --muted: #8b93a7;
+    --accent: #f26522;      /* Veeva orange */
+    --accent-2: #3aa0ff;
+    --good: #4fd08a;
+    --bad: #ff5d6c;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    grid-template-rows: auto 1fr;
+    height: 100vh;
+    overflow: hidden;
+  }
+  header {
+    grid-column: 1 / 3;
+    display: flex; align-items: center; gap: 16px;
+    padding: 10px 16px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 700; letter-spacing: .3px; }
+  header h1 span { color: var(--accent); }
+  .stage-tabs { display: flex; gap: 6px; }
+  .stage-tabs button {
+    background: var(--panel-2); color: var(--muted);
+    border: 1px solid var(--line); border-radius: 6px;
+    padding: 6px 12px; cursor: pointer; font-weight: 600;
+  }
+  .stage-tabs button.active { color: #fff; border-color: var(--accent); background: #2a1f18; }
+  .spacer { flex: 1; }
+  .zoom-ctl { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+  .zoom-ctl button, .toolbtn {
+    background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 6px;
+    padding: 5px 10px; cursor: pointer;
+  }
+  .zoom-ctl button:hover, .toolbtn:hover { border-color: var(--accent); }
+
+  /* Canvas area */
+  #stage {
+    grid-row: 2; grid-column: 1;
+    overflow: auto;
+    background:
+      linear-gradient(45deg, #0b0d12 25%, transparent 25%) -10px 0 / 20px 20px,
+      linear-gradient(-45deg, #0b0d12 25%, transparent 25%) -10px 0 / 20px 20px,
+      linear-gradient(45deg, transparent 75%, #0b0d12 75%) 0 0 / 20px 20px,
+      linear-gradient(-45deg, transparent 75%, #0b0d12 75%) 0 0 / 20px 20px,
+      #14161d;
+    position: relative;
+  }
+  #wrap { position: relative; margin: 24px; width: max-content; }
+  canvas { display: block; image-rendering: auto; box-shadow: 0 6px 30px rgba(0,0,0,.5); cursor: crosshair; }
+  #hint {
+    position: absolute; left: 0; top: 0;
+    pointer-events: none;
+    background: rgba(0,0,0,.8); color: var(--accent);
+    padding: 2px 6px; border-radius: 4px; font: 11px/1 ui-monospace, monospace;
+    transform: translate(10px, 10px); white-space: nowrap;
+  }
+
+  /* Side panel */
+  aside {
+    grid-row: 2; grid-column: 2;
+    background: var(--panel);
+    border-left: 1px solid var(--line);
+    overflow-y: auto;
+    padding: 14px;
+  }
+  aside h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .8px;
+    color: var(--muted); margin: 18px 0 8px; font-weight: 700;
+  }
+  aside h2:first-child { margin-top: 0; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .row .toolbtn { flex: 1; text-align: center; }
+  .toolbtn.danger:hover { border-color: var(--bad); color: var(--bad); }
+  .toolbtn.wide { width: 100%; }
+  label.check { display: flex; align-items: center; gap: 8px; color: var(--muted); margin: 6px 0; cursor: pointer; }
+  .kbd {
+    display: inline-block; background: var(--panel-2); border: 1px solid var(--line);
+    border-bottom-width: 2px; border-radius: 4px; padding: 1px 6px;
+    font: 11px/1.4 ui-monospace, monospace; color: var(--text);
+  }
+  .help { color: var(--muted); font-size: 12px; }
+  .help div { margin: 4px 0; }
+  textarea {
+    width: 100%; height: 150px; resize: vertical;
+    background: #0b0d12; color: var(--good); border: 1px solid var(--line);
+    border-radius: 6px; padding: 8px; font: 11px/1.4 ui-monospace, monospace;
+  }
+  .stat { display: flex; justify-content: space-between; color: var(--muted); padding: 2px 0; }
+  .stat b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: var(--good); color: #08130c; font-weight: 700;
+    padding: 8px 16px; border-radius: 8px; opacity: 0; transition: opacity .2s;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+  select {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 6px; padding: 5px 8px;
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>PTO Approver · <span>Walkable Path Editor</span></h1>
+    <div class="stage-tabs" id="stageTabs">
+      <button data-stage="1" class="active">Stage 1 · Lobby</button>
+      <button data-stage="2">Stage 2 · Workspace</button>
+      <button data-stage="3">Stage 3 · Breakroom</button>
+    </div>
+    <div class="spacer"></div>
+    <div class="zoom-ctl">
+      <button id="zoomOut">−</button>
+      <span id="zoomLabel">100%</span>
+      <button id="zoomIn">+</button>
+      <button id="zoomFit">Fit</button>
+    </div>
+  </header>
+
+  <div id="stage">
+    <div id="wrap">
+      <canvas id="canvas" width="1460" height="540"></canvas>
+      <div id="hint" hidden></div>
+    </div>
+  </div>
+
+  <aside>
+    <h2>Editing</h2>
+    <div class="row">
+      <button class="toolbtn" id="undoBtn">↶ Undo</button>
+      <button class="toolbtn" id="redoBtn">↷ Redo</button>
+    </div>
+    <div class="row">
+      <button class="toolbtn danger" id="delBtn">Delete point</button>
+      <button class="toolbtn danger" id="clearBtn">Clear stage</button>
+    </div>
+    <div class="row">
+      <button class="toolbtn wide" id="resetBtn">Reset stage to seed</button>
+    </div>
+
+    <h2>View</h2>
+    <label class="check"><input type="checkbox" id="chkGrid"> Show grid</label>
+    <label class="check"><input type="checkbox" id="chkFill" checked> Fill polygon</label>
+    <label class="check"><input type="checkbox" id="chkSnap"> Snap to 4px grid</label>
+    <label class="check"><input type="checkbox" id="chkLabels" checked> Point numbers</label>
+
+    <h2>This stage</h2>
+    <div class="stat"><span>Points</span><b id="statPts">0</b></div>
+    <div class="stat"><span>Cursor (local)</span><b id="statCur">—</b></div>
+    <div class="stat"><span>Selected</span><b id="statSel">none</b></div>
+
+    <h2>Export</h2>
+    <div class="row">
+      <button class="toolbtn wide" id="exportBtn">Generate STAGE_WALKABLE →</button>
+    </div>
+    <textarea id="exportBox" readonly placeholder="Click “Generate” to produce the object to paste into src/game/stages.js"></textarea>
+    <div class="row">
+      <button class="toolbtn" id="copyBtn">Copy</button>
+      <select id="exportScope">
+        <option value="all">All 3 stages</option>
+        <option value="one">This stage only</option>
+      </select>
+    </div>
+
+    <h2>Import</h2>
+    <div class="help">Paste a <span class="kbd">STAGE_WALKABLE</span> object (or a single array) and load it.</div>
+    <textarea id="importBox" placeholder="{ 1: [[40,342],...], 2: [...], 3: [...] }"></textarea>
+    <div class="row">
+      <button class="toolbtn wide" id="importBtn">Load pasted data</button>
+    </div>
+
+    <h2>Controls</h2>
+    <div class="help">
+      <div><b>Click empty</b> — add a point (inserts on the nearest edge if close to one)</div>
+      <div><b>Drag a point</b> — move it</div>
+      <div><b>Click a point</b> then <span class="kbd">Delete</span> — remove it</div>
+      <div><span class="kbd">Ctrl</span>+<span class="kbd">Z</span> undo · <span class="kbd">Ctrl</span>+<span class="kbd">Shift</span>+<span class="kbd">Z</span> redo</div>
+      <div>Trace <b>clockwise</b>, feet-level, following the floor edge.</div>
+    </div>
+  </aside>
+
+  <div class="toast" id="toast"></div>
+
+<script type="module">
+// ---------------------------------------------------------------------------
+// Walkable-path editor. Coordinate space is STAGE-LOCAL 1460 x 540 — identical
+// to how the game stretches each background (drawStageBackground draws the
+// 1376x768 PNG into a 1460x540 world rect) and to the STAGE_WALKABLE arrays in
+// src/game/stages.js. Trace here, export, paste back. No game modules imported
+// (they open an AudioContext at load), so seeds are mirrored below.
+// ---------------------------------------------------------------------------
+
+const W = 1460, H = 540;
+
+// Mirror of STAGE_WALKABLE seeds in src/game/stages.js (used for "Reset to seed").
+const SEED = {
+  1: [[42, 459], [364, 406], [365, 454], [541, 456], [790, 387], [790, 365], [975, 369], [1127, 369], [1131, 395], [1217, 473], [1417, 470], [1420, 512], [40, 512]],
+  2: [[43, 429], [107, 436], [212, 437], [319, 387], [455, 386], [453, 441], [483, 442], [500, 425], [560, 429], [779, 425], [781, 442], [877, 441], [885, 431], [950, 428], [1162, 419], [1164, 440], [1255, 442], [1263, 433], [1322, 432], [1420, 425], [1420, 512], [40, 512]],
+  3: [[46, 384], [82, 381], [81, 435], [284, 435], [376, 437], [427, 403], [515, 403], [519, 431], [652, 435], [800, 435], [844, 427], [849, 379], [1035, 377], [1041, 402], [1135, 445], [1195, 460], [1295, 500], [1417, 483], [1420, 512], [40, 512]],
+};
+
+const BG_SRC = {
+  1: '/assets/stage1_lobby.png',
+  2: '/assets/stage2_workspace.png',
+  3: '/assets/stage3_breakroom.png',
+};
+
+const STAGE_TITLE = { 1: 'Lobby', 2: 'Workspace', 3: 'Breakroom' };
+
+// --- State ---
+let stage = 1;
+let polys = { 1: clone(SEED[1]), 2: clone(SEED[2]), 3: clone(SEED[3]) };
+let selected = -1;          // index of selected/hovered vertex
+let dragging = -1;          // index being dragged
+let hoverEdge = -1;         // edge index if cursor is near an edge (for insert)
+let mouseLocal = null;      // {x,y} in local coords
+let zoom = 1;
+const bgImages = {};        // stage -> HTMLImageElement
+
+// Undo/redo — snapshots of the CURRENT stage's polygon.
+let undoStack = [], redoStack = [];
+
+function clone(a) { return a.map(p => [p[0], p[1]]); }
+function poly() { return polys[stage]; }
+
+// --- Canvas setup ---
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const wrap = document.getElementById('wrap');
+const stageEl = document.getElementById('stage');
+const hint = document.getElementById('hint');
+
+// Preload backgrounds.
+for (const s of [1, 2, 3]) {
+  const img = new Image();
+  img.onload = draw;
+  img.src = BG_SRC[s];
+  bgImages[s] = img;
+}
+
+// ---------------------------------------------------------------------------
+// Coordinate mapping: CSS pixels -> local 1460x540
+// ---------------------------------------------------------------------------
+function toLocal(e) {
+  const r = canvas.getBoundingClientRect();
+  let x = (e.clientX - r.left) / r.width * W;
+  let y = (e.clientY - r.top) / r.height * H;
+  x = Math.max(0, Math.min(W, x));
+  y = Math.max(0, Math.min(H, y));
+  if (document.getElementById('chkSnap').checked) {
+    x = Math.round(x / 4) * 4;
+    y = Math.round(y / 4) * 4;
+  }
+  return { x, y };
+}
+function dist2(ax, ay, bx, by) { const dx = ax - bx, dy = ay - by; return dx * dx + dy * dy; }
+
+// Distance from point P to segment AB, plus the projection param t.
+function segDist(px, py, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay;
+  const len2 = dx * dx + dy * dy || 1;
+  let t = ((px - ax) * dx + (py - ay) * dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  const cx = ax + t * dx, cy = ay + t * dy;
+  return { d: Math.hypot(px - cx, py - cy), t };
+}
+
+const HIT_R = 9;   // vertex pick radius (local units)
+const EDGE_R = 8;  // edge pick radius (local units)
+
+function nearestVertex(p) {
+  const pts = poly();
+  let best = -1, bd = HIT_R * HIT_R;
+  for (let i = 0; i < pts.length; i++) {
+    const d = dist2(p.x, p.y, pts[i][0], pts[i][1]);
+    if (d < bd) { bd = d; best = i; }
+  }
+  return best;
+}
+function nearestEdge(p) {
+  const pts = poly();
+  if (pts.length < 2) return -1;
+  let best = -1, bd = EDGE_R;
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length];
+    const { d } = segDist(p.x, p.y, a[0], a[1], b[0], b[1]);
+    if (d < bd) { bd = d; best = i; }
+  }
+  return best;
+}
+
+// ---------------------------------------------------------------------------
+// Editing ops (with undo bookkeeping)
+// ---------------------------------------------------------------------------
+function pushUndo() {
+  undoStack.push({ stage, pts: clone(poly()) });
+  if (undoStack.length > 100) undoStack.shift();
+  redoStack.length = 0;
+}
+function undo() {
+  if (!undoStack.length) return;
+  redoStack.push({ stage, pts: clone(poly()) });
+  const s = undoStack.pop();
+  polys[s.stage] = s.pts; selected = -1;
+  if (s.stage !== stage) setStage(s.stage);
+  draw(); updateStats();
+}
+function redo() {
+  if (!redoStack.length) return;
+  undoStack.push({ stage, pts: clone(poly()) });
+  const s = redoStack.pop();
+  polys[s.stage] = s.pts; selected = -1;
+  if (s.stage !== stage) setStage(s.stage);
+  draw(); updateStats();
+}
+
+function addPoint(p) {
+  pushUndo();
+  const edge = nearestEdge(p);
+  if (edge >= 0) {
+    poly().splice(edge + 1, 0, [Math.round(p.x), Math.round(p.y)]);
+    selected = edge + 1;
+  } else {
+    poly().push([Math.round(p.x), Math.round(p.y)]);
+    selected = poly().length - 1;
+  }
+}
+function deleteSelected() {
+  if (selected < 0 || selected >= poly().length) return;
+  pushUndo();
+  poly().splice(selected, 1);
+  selected = -1;
+  draw(); updateStats();
+}
+
+// ---------------------------------------------------------------------------
+// Mouse handling
+// ---------------------------------------------------------------------------
+canvas.addEventListener('mousedown', (e) => {
+  const p = toLocal(e);
+  const v = nearestVertex(p);
+  if (v >= 0) {
+    selected = v; dragging = v; pushUndo();
+  } else {
+    addPoint(p); dragging = selected; // allow immediate drag of the new point
+  }
+  draw(); updateStats();
+});
+window.addEventListener('mousemove', (e) => {
+  const p = toLocal(e);
+  mouseLocal = p;
+  if (dragging >= 0) {
+    poly()[dragging] = [Math.round(p.x), Math.round(p.y)];
+  } else {
+    selected = nearestVertex(p);
+    hoverEdge = selected < 0 ? nearestEdge(p) : -1;
+  }
+  positionHint(e);
+  draw(); updateStats();
+});
+window.addEventListener('mouseup', () => { dragging = -1; });
+
+function positionHint(e) {
+  if (!mouseLocal) { hint.hidden = true; return; }
+  hint.hidden = false;
+  hint.textContent = `${Math.round(mouseLocal.x)}, ${Math.round(mouseLocal.y)}`;
+  const r = stageEl.getBoundingClientRect();
+  hint.style.left = (e.clientX - r.left + stageEl.scrollLeft - 24) + 'px';
+  hint.style.top = (e.clientY - r.top + stageEl.scrollTop - 24) + 'px';
+}
+stageEl.addEventListener('mouseleave', () => { hint.hidden = true; mouseLocal = null; draw(); });
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+
+  // Background stretched exactly as the game draws it (native PNG -> 1460x540).
+  const img = bgImages[stage];
+  if (img && img.complete && img.naturalWidth) {
+    ctx.drawImage(img, 0, 0, W, H);
+  } else {
+    ctx.fillStyle = '#151926'; ctx.fillRect(0, 0, W, H);
+  }
+
+  // Dim so the path pops.
+  ctx.fillStyle = 'rgba(8,10,16,.28)';
+  ctx.fillRect(0, 0, W, H);
+
+  if (document.getElementById('chkGrid').checked) drawGrid();
+
+  const pts = poly();
+  if (pts.length) {
+    // Polygon outline + fill
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.closePath();
+    if (document.getElementById('chkFill').checked) {
+      ctx.fillStyle = 'rgba(242,101,34,.16)';
+      ctx.fill();
+    }
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#f26522';
+    ctx.stroke();
+
+    // Insert preview on hovered edge
+    if (hoverEdge >= 0 && mouseLocal && dragging < 0) {
+      ctx.fillStyle = 'rgba(58,160,255,.9)';
+      circle(mouseLocal.x, mouseLocal.y, 4);
+    }
+
+    // Vertices
+    const showLabels = document.getElementById('chkLabels').checked;
+    for (let i = 0; i < pts.length; i++) {
+      const isSel = i === selected;
+      ctx.fillStyle = isSel ? '#3aa0ff' : '#fff';
+      ctx.strokeStyle = '#0e1016';
+      ctx.lineWidth = 2;
+      circle(pts[i][0], pts[i][1], isSel ? 6 : 4, true);
+      if (showLabels) {
+        ctx.fillStyle = 'rgba(0,0,0,.75)';
+        ctx.fillRect(pts[i][0] + 7, pts[i][1] - 16, 10 + String(i).length * 6, 14);
+        ctx.fillStyle = '#dbe0ec';
+        ctx.font = '11px ui-monospace, monospace';
+        ctx.fillText(String(i), pts[i][0] + 10, pts[i][1] - 5);
+      }
+    }
+  }
+}
+function circle(x, y, r, stroke) {
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  if (stroke) ctx.stroke();
+}
+function drawGrid() {
+  ctx.strokeStyle = 'rgba(255,255,255,.06)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y <= H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+}
+
+// ---------------------------------------------------------------------------
+// UI wiring
+// ---------------------------------------------------------------------------
+function setStage(s) {
+  stage = s; selected = -1; dragging = -1; hoverEdge = -1;
+  document.querySelectorAll('#stageTabs button').forEach(b =>
+    b.classList.toggle('active', +b.dataset.stage === s));
+  draw(); updateStats();
+}
+document.getElementById('stageTabs').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  setStage(+b.dataset.stage);
+});
+
+function setZoom(z) {
+  zoom = Math.max(0.4, Math.min(2.5, z));
+  canvas.style.width = (W * zoom) + 'px';
+  canvas.style.height = (H * zoom) + 'px';
+  document.getElementById('zoomLabel').textContent = Math.round(zoom * 100) + '%';
+}
+document.getElementById('zoomIn').onclick = () => setZoom(zoom + 0.1);
+document.getElementById('zoomOut').onclick = () => setZoom(zoom - 0.1);
+document.getElementById('zoomFit').onclick = fitZoom;
+function fitZoom() {
+  const avail = stageEl.clientWidth - 48;
+  setZoom(avail / W);
+}
+
+document.getElementById('undoBtn').onclick = undo;
+document.getElementById('redoBtn').onclick = redo;
+document.getElementById('delBtn').onclick = deleteSelected;
+document.getElementById('clearBtn').onclick = () => {
+  if (!poly().length) return;
+  pushUndo(); polys[stage] = []; selected = -1; draw(); updateStats();
+};
+document.getElementById('resetBtn').onclick = () => {
+  pushUndo(); polys[stage] = clone(SEED[stage]); selected = -1; draw(); updateStats();
+  toast('Reset to seed');
+};
+
+['chkGrid', 'chkFill', 'chkSnap', 'chkLabels'].forEach(id =>
+  document.getElementById(id).addEventListener('change', draw));
+
+// Keyboard
+window.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'TEXTAREA') return;
+  if ((e.key === 'Delete' || e.key === 'Backspace')) { e.preventDefault(); deleteSelected(); }
+  else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+    e.preventDefault(); e.shiftKey ? redo() : undo();
+  }
+});
+
+function updateStats() {
+  document.getElementById('statPts').textContent = poly().length;
+  document.getElementById('statCur').textContent =
+    mouseLocal ? `${Math.round(mouseLocal.x)}, ${Math.round(mouseLocal.y)}` : '—';
+  document.getElementById('statSel').textContent =
+    selected >= 0 ? `#${selected} (${poly()[selected][0]}, ${poly()[selected][1]})` : 'none';
+}
+
+// ---------------------------------------------------------------------------
+// Export / Import
+// ---------------------------------------------------------------------------
+function fmtArray(pts) {
+  return '[' + pts.map(p => `[${Math.round(p[0])}, ${Math.round(p[1])}]`).join(', ') + ']';
+}
+function generateExport() {
+  const scope = document.getElementById('exportScope').value;
+  let out;
+  if (scope === 'one') {
+    out = `// Stage ${stage} (${STAGE_TITLE[stage]}) — paste into STAGE_WALKABLE in src/game/stages.js\n`
+        + `  ${stage}: ${fmtArray(poly())},`;
+  } else {
+    out = 'const STAGE_WALKABLE = {\n'
+        + [1, 2, 3].map(s => `  ${s}: ${fmtArray(polys[s])},`).join('\n')
+        + '\n};';
+  }
+  document.getElementById('exportBox').value = out;
+}
+document.getElementById('exportBtn').onclick = generateExport;
+document.getElementById('copyBtn').onclick = async () => {
+  const box = document.getElementById('exportBox');
+  if (!box.value) generateExport();
+  try { await navigator.clipboard.writeText(box.value); toast('Copied to clipboard'); }
+  catch { box.select(); document.execCommand('copy'); toast('Copied'); }
+};
+
+document.getElementById('importBtn').onclick = () => {
+  const raw = document.getElementById('importBox').value.trim();
+  if (!raw) return;
+  try {
+    // Accept "{...}", "STAGE_WALKABLE = {...}", or a bare "[[...]]".
+    let text = raw.replace(/^\s*(const\s+)?STAGE_WALKABLE\s*=\s*/, '').replace(/;?\s*$/, '');
+    const val = JSON.parse(toJson(text));
+    pushUndo();
+    if (Array.isArray(val)) {
+      polys[stage] = val.map(p => [Math.round(p[0]), Math.round(p[1])]);
+      toast(`Loaded ${val.length} points into stage ${stage}`);
+    } else {
+      for (const s of [1, 2, 3]) if (val[s]) polys[s] = val[s].map(p => [Math.round(p[0]), Math.round(p[1])]);
+      toast('Loaded all stages');
+    }
+    selected = -1; draw(); updateStats();
+  } catch (err) {
+    toast('Could not parse — check the format', true);
+  }
+};
+// Turn a JS object literal with numeric keys into strict JSON.
+function toJson(t) {
+  return t.replace(/([{,]\s*)(\d+)\s*:/g, '$1"$2":');
+}
+
+// ---------------------------------------------------------------------------
+let toastTimer;
+function toast(msg, bad) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.background = bad ? 'var(--bad)' : 'var(--good)';
+  el.style.color = bad ? '#fff' : '#08130c';
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+}
+
+// Init
+window.addEventListener('resize', () => {});
+fitZoom();
+draw();
+updateStats();
+</script>
+</body>
+</html>
