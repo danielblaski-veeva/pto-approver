@@ -26,9 +26,37 @@ export class PhysicsEngine {
     if (entity.y > this.floorYMax) entity.y = this.floorYMax;
   }
 
+  // Soft body separation on the ground plane so actors can't merge together.
+  // Elliptical footprints (bodyRX wider than bodyRY for the 2.5D feel); resolves the
+  // overlap along the axis of least penetration, split 50/50 between the two bodies.
+  resolveBodies(a, b) {
+    // Only collide at similar heights — lets a jumping actor pass over the other
+    if (Math.abs((a.z || 0) - (b.z || 0)) > 32) return;
+
+    const minX = a.bodyRX + b.bodyRX;
+    const minY = a.bodyRY + b.bodyRY;
+    const dx = a.x - b.x;
+    const dy = a.y - b.y;
+    const ox = minX - Math.abs(dx);   // x-axis penetration
+    const oy = minY - Math.abs(dy);   // y-axis penetration
+    if (ox <= 0 || oy <= 0) return;   // not overlapping
+
+    if (ox < oy) {
+      const push = ox / 2;
+      const s = dx < 0 ? -1 : 1;
+      a.x += push * s;
+      b.x -= push * s;
+    } else {
+      const push = oy / 2;
+      const s = dy < 0 ? -1 : 1;
+      a.y += push * s;
+      b.y -= push * s;
+    }
+  }
+
   // Depth-aware 2.5D Isometric Hitbox Collision
   checkHit(attacker, victim, hitWidth = 50, hitDepth = 25, hitHeight = 40) {
-    if (attacker.isDead || victim.isDead) return false;
+    if (attacker.isDead || victim.isDead || victim.dying) return false;
 
     // Must be facing towards victim or within close radial proximity
     const xDiff = victim.x - attacker.x;

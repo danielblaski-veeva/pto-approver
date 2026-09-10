@@ -176,6 +176,36 @@ canvas#game-canvas {
   background: linear-gradient(90deg, #0088ff, #00e5ff);
 }
 
+/* Final Boss Health Bar (top-right corner) */
+.boss-bar {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  width: 280px;
+  z-index: 21;
+  pointer-events: none;
+  text-align: right;
+}
+
+.boss-bar-label {
+  display: block;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 9px;
+  color: #ff5533;
+  text-shadow: 1px 1px 0 #000;
+  margin-bottom: 4px;
+  letter-spacing: 1px;
+}
+
+.boss-bar .hud-bar-bg {
+  height: 16px;
+  border-color: #ff5533;
+}
+
+.boss-fill {
+  background: linear-gradient(90deg, #ff1122, #ff8800);
+}
+
 .sp-label {
   position: absolute;
   top: 2px;
@@ -278,7 +308,7 @@ canvas#game-canvas {
   transition: opacity 0.3s;
 }
 
-.overlay-screen.hidden, .hud-overlay.hidden, .banner-overlay.hidden, .hud-combo-box.hidden, .touch-controls.hidden {
+.overlay-screen.hidden, .hud-overlay.hidden, .banner-overlay.hidden, .hud-combo-box.hidden, .touch-controls.hidden, .boss-bar.hidden {
   display: none !important;
 }
 

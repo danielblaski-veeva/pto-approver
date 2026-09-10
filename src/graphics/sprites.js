@@ -56,6 +56,7 @@ export class SpriteRenderer {
       { key: 'zombie_walk', src: '/assets/sprites/zombie_walk.png' },
       { key: 'zombie_attack', src: '/assets/sprites/zombie_attack.png' },
       { key: 'customer_midboss', src: '/assets/sprites/customer_midboss.png' },
+      { key: 'customer_attack', src: '/assets/sprites/customer_midboss_attack.png' },
       { key: 'manager_stand', src: '/assets/sprites/manager_stand.png' },
       { key: 'manager_slam', src: '/assets/sprites/manager_slam.png' }
     ];
@@ -322,13 +323,15 @@ export class SpriteRenderer {
         offsetX = -53;
         offsetY = -120;
       } else if (state === 'walk') {
-        // Dynamic alternating stride
-        const step = (Math.floor(frame / 6) % 2 === 0);
-        img = step ? this.images.player_walk : this.images.player_idle;
-        targetW = step ? 106 : 113;
+        // Running pose (full sword in frame). Aspect-aware and anchored on the feet
+        // (measured at ~0.34 of the image width — the sword extends to the right) so he
+        // stays put while walking and doesn't snap when he stops.
+        img = this.images.player_walk;
+        const PW_ANCHOR = 0.343;   // feet horizontal position as a fraction of the image width
         targetH = 120;
-        offsetX = step ? -53 : -56;
-        const bobY = Math.abs(Math.sin(frame * 0.4)) * 3;
+        targetW = (img && img.naturalHeight) ? targetH * (img.naturalWidth / img.naturalHeight) : 106;
+        offsetX = -targetW * PW_ANCHOR;
+        const bobY = Math.abs(Math.sin(frame * 0.4)) * 4;
         offsetY = -120 + bobY;
       } else {
         // Idle breathing
@@ -353,6 +356,19 @@ export class SpriteRenderer {
       offsetX = -41;
       const bobY = state === 'walk' ? Math.abs(Math.sin(frame * 0.4)) * 3 : Math.sin(this.animTime * 0.08) * 2;
       offsetY = -120 + bobY;
+    }
+
+    // Attack lunge — thrust forward on the strike then snap back (all characters).
+    // local +x is "forward" here (the facingLeft flip already applied), so a positive
+    // translate lunges toward the enemy regardless of facing.
+    if (state === 'attack') {
+      const dur = player.attackDuration || 18;
+      const p = 1 - Math.max(0, player.attackTimer) / dur;          // 0 -> 1 across the swing
+      const reach = player.attackIsFinisher ? 22 : 14;
+      const lungeX = Math.sin(Math.min(1, p * 1.5) * Math.PI) * reach; // out then back
+      const punch = 1 + 0.06 * Math.sin(Math.min(1, p * 2) * Math.PI);  // brief scale pop
+      ctx.translate(lungeX, 2);   // forward thrust + a small downward dip
+      ctx.scale(punch, punch);
     }
 
     if (img && img.complete && img.naturalWidth > 0) {
@@ -380,7 +396,7 @@ export class SpriteRenderer {
   // Zombie Colleague, Customer Mid-Boss, & The Manager
   // ==========================================
   drawEnemy(ctx, enemy) {
-    const { x, y, z, type, frame, facingLeft, isHit, state, freezeTimer } = enemy;
+    const { x, y, z, type, frame, facingLeft, isHit, hitTimer, state, freezeTimer, dying, knockbackVx } = enemy;
     const drawX = Math.floor(x);
     const drawY = Math.floor(y - z);
 
@@ -388,19 +404,48 @@ export class SpriteRenderer {
     ctx.translate(drawX, drawY);
     if (facingLeft) ctx.scale(-1, 1);
 
-    // Hit Flash or Freeze Overlay
-    if (isHit) {
-      ctx.filter = 'brightness(2.4) contrast(1.5)';
+    // The sprite pivots at the feet (origin). Because facingLeft mirrors X, a rotation
+    // applied here reads reversed in world space — multiply by `flip` to cancel that.
+    // Sprite-only transforms are applied AFTER the ground shadow so the shadow stays flat.
+    const flip = facingLeft ? -1 : 1;
+    let spriteTilt = 0;
+    let squashX = 1, squashY = 1;
+    let trembleX = 0;
+
+    if (dying) {
+      // Blink out over the final frames before removal (the classic "about to vanish" tell)
+      if (enemy.grounded && enemy.groundTimer < 40 && Math.floor(enemy.groundTimer / 4) % 2 === 0) {
+        ctx.restore();
+        return;
+      }
+      // Rotate flat onto the back (feet stay planted), squash on floor impact, downed tint
+      spriteTilt = enemy.deathRot * enemy.deathDir * flip;
+      squashX = 1 + 0.30 * enemy.landSquash;
+      squashY = 1 - 0.30 * enemy.landSquash;
+      ctx.filter = 'brightness(0.85) saturate(0.4) sepia(0.35)';
+    } else if (isHit) {
+      // Recoil lean away from the hit + a pain tremble + a short white flash
+      const dir = (knockbackVx || (facingLeft ? -1 : 1)) >= 0 ? 1 : -1;
+      spriteTilt = 0.16 * dir * flip;
+      trembleX = (hitTimer % 2 === 0 ? 2 : -2);
+      // Full-white silhouette only for the first few frames of hitstun, then just the pose
+      if (hitTimer > 11) ctx.filter = 'brightness(3) contrast(1.4) saturate(0)';
     } else if (freezeTimer > 0) {
       ctx.filter = 'hue-rotate(140deg) brightness(1.2) saturate(1.4)';
     }
 
-    // Ground Shadow
-    const shadowW = type === 'manager' ? 54 : ((type === 'boss' || type === 'midboss') ? 44 : 26);
+    // Ground Shadow (widens as the body lies flat on the floor)
+    const baseShadowW = type === 'manager' ? 54 : ((type === 'boss' || type === 'midboss') ? 44 : 26);
+    const shadowW = (dying && enemy.grounded) ? baseShadowW * 1.6 : baseShadowW;
     ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
     ctx.beginPath();
     ctx.ellipse(0, 0, shadowW, 11, 0, 0, Math.PI * 2);
     ctx.fill();
+
+    // Sprite-only transforms (shadow above stays flat & planted on the ground)
+    if (trembleX) ctx.translate(trembleX, 0);
+    if (squashX !== 1 || squashY !== 1) ctx.scale(squashX, squashY);
+    if (spriteTilt) ctx.rotate(spriteTilt);
 
     ctx.imageSmoothingEnabled = false;
 
@@ -435,28 +480,51 @@ export class SpriteRenderer {
 
     } else if (type === 'boss' || type === 'midboss') {
       // ------------------------------------------
-      // 2. CUSTOMER MID-BOSS (Purple Tailored Suit)
+      // 2. CUSTOMER MID-BOSS — original image, with a dedicated attack frame swapped
+      //    in on attack (same two-frame approach as the zombie grunt).
       // ------------------------------------------
-      const img = this.images.customer_midboss;
-      const targetW = 136;
-      const targetH = 150;
-      const offsetX = -68;
-      const bobY = Math.abs(Math.sin(frame * 0.2)) * 4;
-      const offsetY = -150 + bobY;
+      const attacking = enemy.attackAnimTimer > 0;
+      const atkImg = this.images.customer_attack;
 
-      if (img && img.complete && img.naturalWidth > 0) {
-        ctx.drawImage(img, offsetX, offsetY, targetW, targetH);
+      if (attacking && atkImg && atkImg.complete && atkImg.naturalWidth > 0) {
+        // Dedicated attack-pose frame (lunge + laptop smash). Aspect-scaled and anchored
+        // so his body sits at the boss's position while the smash reaches forward (+x).
+        const ATK_H = 140;          // drawn height — smaller than the walk (lower = smaller)
+        const ATK_ANCHOR = 0.44;    // fraction of width where his body sits (higher = pulled back)
+        const ATK_RAISE = 38;       // lift the frame so the smash lands at the player's head
+        const targetW = ATK_H * (atkImg.naturalWidth / atkImg.naturalHeight);
+        ctx.drawImage(atkImg, -targetW * ATK_ANCHOR, -ATK_H - ATK_RAISE, targetW, ATK_H);
+      } else {
+        // Idle / walk (and graceful fallback until the attack art exists): original image
+        // with the smooth walk sway + footfall bob.
+        const blend = enemy.walkBlend || 0;
+        const ph = enemy.walkPhase || 0;
+        const sway = Math.sin(ph);
+        const bob = Math.abs(Math.sin(ph)) * 6 * blend + (1 - blend) * Math.abs(Math.sin(this.animTime * 0.08)) * 3;
+        const baseImg = this.images.customer_midboss;
+        ctx.save();
+        ctx.rotate(sway * 0.045 * blend * flip);
+        ctx.translate(sway * 2 * blend, 0);
+        if (baseImg && baseImg.complete && baseImg.naturalWidth > 0) {
+          ctx.drawImage(baseImg, -68, -150 + bob, 136, 150);
+        }
+        ctx.restore();
       }
 
-      // Urgent Requirement Alert Icon Above Head
-      if (enemy.attackCooldown > 30) {
+      // Wind-up telegraph: flash the alert "!" above the head while the fist is raised
+      const iconY = -150 - 16;
+      if (enemy.attackAnimTimer > (enemy.attackAnimDuration || 36) * 0.5) {
+        const pulse = 0.5 + 0.5 * Math.sin(this.animTime * 0.6);
+        ctx.save();
+        ctx.globalAlpha = 0.55 + 0.45 * pulse;
         ctx.fillStyle = '#FF2244';
         ctx.beginPath();
-        ctx.arc(0, offsetY - 16, 12, 0, Math.PI * 2);
+        ctx.arc(0, iconY, 12, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = '#FFFFFF';
         ctx.font = 'bold 15px monospace';
-        ctx.fillText('!', -4, offsetY - 11);
+        ctx.fillText('!', -4, iconY + 5);
+        ctx.restore();
       }
 
     } else if (type === 'manager') {
@@ -512,6 +580,31 @@ export class SpriteRenderer {
     ctx.restore();
   }
 
+  // Floating HP bar above a mid-boss's head (world space; drawn upright, no flip/tilt)
+  drawEnemyHealthBar(ctx, enemy) {
+    const barW = 64, barH = 7, headY = -168;   // above the ~150px-tall sprite
+    const pct = Math.max(0, Math.min(1, enemy.hp / enemy.maxHp));
+
+    ctx.save();
+    ctx.translate(Math.floor(enemy.x), Math.floor(enemy.y));
+    // Backing
+    ctx.fillStyle = '#111';
+    ctx.fillRect(-barW / 2 - 1, headY - 1, barW + 2, barH + 2);
+    ctx.fillStyle = '#333';
+    ctx.fillRect(-barW / 2, headY, barW, barH);
+    // Fill (red -> orange), depletes from the right
+    const grad = ctx.createLinearGradient(-barW / 2, 0, barW / 2, 0);
+    grad.addColorStop(0, '#ff1122');
+    grad.addColorStop(1, '#ff8800');
+    ctx.fillStyle = grad;
+    ctx.fillRect(-barW / 2, headY, barW * pct, barH);
+    // Border
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(-barW / 2 - 1, headY - 1, barW + 2, barH + 2);
+    ctx.restore();
+  }
+
   // Draw Projectiles
   drawProjectile(ctx, p) {
     ctx.save();
@@ -525,17 +618,27 @@ export class SpriteRenderer {
       ctx.fillStyle = '#FFF';
       ctx.fillRect(-2, -6, 4, 2);
     } else if (p.type === 'urgent') {
-      ctx.fillStyle = '#FF2244';
-      ctx.fillRect(-12, -8, 24, 16);
+      // Spinning "URGENT! FIX NOW!" paper — the documents the mid-boss hurls
+      ctx.rotate(p.spin || 0);
       ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(-10, -6, 20, 12);
-      ctx.strokeStyle = '#FF2244';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(-10, -6);
-      ctx.lineTo(0, 0);
-      ctx.lineTo(10, -6);
-      ctx.stroke();
+      ctx.fillRect(-11, -14, 22, 28);
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(-11, -14, 22, 28);
+      ctx.fillStyle = '#FF2244';           // red URGENT header bar
+      ctx.fillRect(-11, -14, 22, 7);
+      ctx.strokeStyle = '#FF2244';         // red X checkboxes
+      ctx.lineWidth = 1.5;
+      for (let i = 0; i < 2; i++) {
+        const yy = -3 + i * 8;
+        ctx.strokeRect(-8, yy, 6, 6);
+        ctx.beginPath();
+        ctx.moveTo(-8, yy); ctx.lineTo(-2, yy + 6);
+        ctx.moveTo(-2, yy); ctx.lineTo(-8, yy + 6);
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#999';              // faint body text lines
+      for (let i = 0; i < 3; i++) ctx.fillRect(2, -2 + i * 5, 8, 2);
     } else if (p.type === 'document') {
       ctx.fillStyle = COLOR_PALETTE.veevaBlue;
       ctx.fillRect(-10, -12, 20, 24);

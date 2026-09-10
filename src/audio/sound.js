@@ -100,6 +100,19 @@ class SoundEngine {
     this.playNoise(0.18, 0.3);
   }
 
+  playEnemyDeath() {
+    // Meaty impact then a descending "drop dead" whine
+    this.playTone(160, 'square', 0.28, 0.3, 40);
+    this.playNoise(0.14, 0.28);
+    setTimeout(() => this.playTone(90, 'sawtooth', 0.22, 0.2, 30), 60);
+  }
+
+  playThud() {
+    // Low body-hits-the-floor impact
+    this.playTone(70, 'sine', 0.16, 0.35, 45);
+    this.playNoise(0.1, 0.22);
+  }
+
   playSwing() {
     this.playTone(300, 'triangle', 0.06, 0.1, 100);
   }
