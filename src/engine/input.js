@@ -1,19 +1,23 @@
 // Dual Input System: Keyboard + HTML5 Gamepad API + Touch Controls
+//
+// State model (this is what keeps gamepad input from "sticking"):
+//   rawKeys — keyboard + touch. Event-driven and self-clearing (keyup / touchend
+//             set the flag back to false).
+//   pad     — gamepad. Polled, so it is REBUILT FROM SCRATCH every frame; a key
+//             the pad isn't currently holding is false, not left latched on.
+//   keys    — the combined view the rest of the game reads: rawKeys OR pad,
+//             recomputed each frame in update().
+
+const KEY_NAMES = ['up', 'down', 'left', 'right', 'attack', 'jump', 'special', 'start'];
+const blankKeys = () => KEY_NAMES.reduce((o, k) => (o[k] = false, o), {});
 
 export class InputHandler {
   constructor() {
-    this.keys = {
-      up: false,
-      down: false,
-      left: false,
-      right: false,
-      attack: false,
-      jump: false,
-      special: false,
-      start: false
-    };
+    this.keys = blankKeys();      // combined (read by the game)
+    this.rawKeys = blankKeys();   // keyboard + touch (self-clearing)
+    this.pad = blankKeys();       // gamepad (rebuilt each poll)
 
-    // Just Pressed State Triggers
+    // Just Pressed State Triggers (edge-detected from the combined `keys`)
     this.justPressed = {
       attack: false,
       jump: false,
@@ -38,30 +42,30 @@ export class InputHandler {
 
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(code)) e.preventDefault();
 
-      if (code === 'ArrowUp' || key === 'w') this.keys.up = true;
-      if (code === 'ArrowDown' || key === 's') this.keys.down = true;
-      if (code === 'ArrowLeft' || key === 'a') this.keys.left = true;
-      if (code === 'ArrowRight' || key === 'd') this.keys.right = true;
+      if (code === 'ArrowUp' || key === 'w') this.rawKeys.up = true;
+      if (code === 'ArrowDown' || key === 's') this.rawKeys.down = true;
+      if (code === 'ArrowLeft' || key === 'a') this.rawKeys.left = true;
+      if (code === 'ArrowRight' || key === 'd') this.rawKeys.right = true;
 
-      if (key === 'z' || key === 'j') this.keys.attack = true;
-      if (key === 'x' || key === 'k' || code === 'Space') this.keys.jump = true;
-      if (key === 'c' || key === 'l') this.keys.special = true;
-      if (code === 'Enter') this.keys.start = true;
+      if (key === 'z' || key === 'j') this.rawKeys.attack = true;
+      if (key === 'x' || key === 'k' || code === 'Space') this.rawKeys.jump = true;
+      if (key === 'c' || key === 'l') this.rawKeys.special = true;
+      if (code === 'Enter') this.rawKeys.start = true;
     });
 
     window.addEventListener('keyup', (e) => {
       const code = e.code;
       const key = e.key.toLowerCase();
 
-      if (code === 'ArrowUp' || key === 'w') this.keys.up = false;
-      if (code === 'ArrowDown' || key === 's') this.keys.down = false;
-      if (code === 'ArrowLeft' || key === 'a') this.keys.left = false;
-      if (code === 'ArrowRight' || key === 'd') this.keys.right = false;
+      if (code === 'ArrowUp' || key === 'w') this.rawKeys.up = false;
+      if (code === 'ArrowDown' || key === 's') this.rawKeys.down = false;
+      if (code === 'ArrowLeft' || key === 'a') this.rawKeys.left = false;
+      if (code === 'ArrowRight' || key === 'd') this.rawKeys.right = false;
 
-      if (key === 'z' || key === 'j') this.keys.attack = false;
-      if (key === 'x' || key === 'k' || code === 'Space') this.keys.jump = false;
-      if (key === 'c' || key === 'l') this.keys.special = false;
-      if (code === 'Enter') this.keys.start = false;
+      if (key === 'z' || key === 'j') this.rawKeys.attack = false;
+      if (key === 'x' || key === 'k' || code === 'Space') this.rawKeys.jump = false;
+      if (key === 'c' || key === 'l') this.rawKeys.special = false;
+      if (code === 'Enter') this.rawKeys.start = false;
     });
   }
 
@@ -71,6 +75,7 @@ export class InputHandler {
     });
     window.addEventListener('gamepaddisconnected', () => {
       this.gamepadConnected = false;
+      this.pad = blankKeys();   // drop any latched pad state on disconnect
     });
   }
 
@@ -78,8 +83,8 @@ export class InputHandler {
     const dpadBtns = document.querySelectorAll('.dpad-btn');
     dpadBtns.forEach(btn => {
       const dir = btn.dataset.dir;
-      const startDir = (e) => { e.preventDefault(); this.keys[dir] = true; };
-      const endDir = (e) => { e.preventDefault(); this.keys[dir] = false; };
+      const startDir = (e) => { e.preventDefault(); this.rawKeys[dir] = true; };
+      const endDir = (e) => { e.preventDefault(); this.rawKeys[dir] = false; };
 
       btn.addEventListener('touchstart', startDir);
       btn.addEventListener('touchend', endDir);
@@ -90,8 +95,8 @@ export class InputHandler {
     const actionBtns = document.querySelectorAll('.touch-btn');
     actionBtns.forEach(btn => {
       const act = btn.dataset.action;
-      const startAct = (e) => { e.preventDefault(); this.keys[act] = true; };
-      const endAct = (e) => { e.preventDefault(); this.keys[act] = false; };
+      const startAct = (e) => { e.preventDefault(); this.rawKeys[act] = true; };
+      const endAct = (e) => { e.preventDefault(); this.rawKeys[act] = false; };
 
       btn.addEventListener('touchstart', startAct);
       btn.addEventListener('touchend', endAct);
@@ -100,35 +105,45 @@ export class InputHandler {
     });
   }
 
+  // Rebuild `this.pad` from the live gamepad. Every field is assigned fresh, so
+  // releasing the stick/button clears it (no latching → no stuck directions).
   pollGamepad() {
+    const pad = blankKeys();
     const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
     const gp = gamepads[0] || gamepads[1] || gamepads[2] || gamepads[3];
-    if (!gp) return;
 
-    const deadzone = 0.25;
-    const pressed = (i) => !!(gp.buttons[i] && gp.buttons[i].pressed);
+    if (gp) {
+      const deadzone = 0.25;
+      const pressed = (i) => !!(gp.buttons[i] && gp.buttons[i].pressed);
+      const axisX = gp.axes[0] || 0;
+      const axisY = gp.axes[1] || 0;
 
-    // --- Movement: left stick + D-pad (OR'd with keyboard, so both work) ---
-    const axisX = gp.axes[0] || 0;
-    const axisY = gp.axes[1] || 0;
+      // Movement: left stick + D-pad
+      pad.left  = axisX < -deadzone || pressed(14);
+      pad.right = axisX >  deadzone || pressed(15);
+      pad.up    = axisY < -deadzone || pressed(12);
+      pad.down  = axisY >  deadzone || pressed(13);
 
-    this.keys.left  = this.keys.left  || axisX < -deadzone || pressed(14); // D-pad left
-    this.keys.right = this.keys.right || axisX >  deadzone || pressed(15); // D-pad right
-    this.keys.up    = this.keys.up    || axisY < -deadzone || pressed(12); // D-pad up
-    this.keys.down  = this.keys.down  || axisY >  deadzone || pressed(13); // D-pad down
+      // Xbox face buttons (W3C "standard" gamepad mapping):
+      //   A (0) = Jump   B (1) = Attack (alt)   X (2) = Attack   Y (3) = Special   Menu (9) = Start
+      pad.jump    = pressed(0);
+      pad.attack  = pressed(2) || pressed(1);
+      pad.special = pressed(3);
+      pad.start   = pressed(9);
+    }
 
-    // --- Xbox face buttons (W3C "standard" gamepad mapping) ---
-    //   A (0) = Jump   B (1) = Attack (alt)   X (2) = Attack   Y (3) = Special   Menu (9) = Start
-    this.keys.jump    = this.keys.jump    || pressed(0);
-    this.keys.attack  = this.keys.attack  || pressed(2) || pressed(1);
-    this.keys.special = this.keys.special || pressed(3);
-    this.keys.start   = this.keys.start   || pressed(9);
+    this.pad = pad;
   }
 
   update() {
     this.pollGamepad();
 
-    // Compute justPressed triggers
+    // Combined view = keyboard/touch OR gamepad, recomputed every frame.
+    for (const k of KEY_NAMES) {
+      this.keys[k] = this.rawKeys[k] || this.pad[k];
+    }
+
+    // Compute justPressed triggers from the combined state.
     this.justPressed.attack = this.keys.attack && !this.prevKeys.attack;
     this.justPressed.jump = this.keys.jump && !this.prevKeys.jump;
     this.justPressed.special = this.keys.special && !this.prevKeys.special;
