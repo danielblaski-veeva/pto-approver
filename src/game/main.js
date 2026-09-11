@@ -56,14 +56,35 @@ class GameApp {
     }, 250);
   }
 
+  // Character roster in on-screen (left→right) order, for D-pad / arrow cycling.
+  static CHAR_ORDER = ['tech', 'support', 'psa'];
+
+  // Select a character by type: updates the model and highlights its card.
+  setSelectedChar(charType) {
+    if (!GameApp.CHAR_ORDER.includes(charType)) return;
+    this.selectedChar = charType;
+    document.querySelectorAll('.char-card').forEach(c => {
+      c.classList.toggle('selected', c.dataset.char === charType);
+    });
+  }
+
+  // Move the character selection by ±1, wrapping around the roster.
+  cycleSelectedChar(dir) {
+    const order = GameApp.CHAR_ORDER;
+    const idx = order.indexOf(this.selectedChar);
+    this.setSelectedChar(order[(idx + dir + order.length) % order.length]);
+  }
+
+  // Show/hide the "controller connected" badge to match the gamepad state.
+  updateGamepadBadge() {
+    const badge = document.getElementById('gamepad-badge');
+    if (badge) badge.classList.toggle('hidden', !input.gamepadConnected);
+  }
+
   initDOMEvents() {
     const cards = document.querySelectorAll('.char-card');
     cards.forEach(card => {
-      card.addEventListener('click', () => {
-        cards.forEach(c => c.classList.remove('selected'));
-        card.classList.add('selected');
-        this.selectedChar = card.dataset.char;
-      });
+      card.addEventListener('click', () => this.setSelectedChar(card.dataset.char));
     });
 
     document.getElementById('btn-start-game').addEventListener('click', () => {
@@ -222,6 +243,7 @@ class GameApp {
 
   loop() {
     input.update();
+    this.updateGamepadBadge();
 
     if (this.editMode) {
       this.renderEditor();
@@ -230,6 +252,9 @@ class GameApp {
     }
 
     if (this.state === 'CHAR_SELECT') {
+      // Cycle characters with D-pad / arrows (left & right), start to confirm.
+      if (input.justPressed.left) this.cycleSelectedChar(-1);
+      if (input.justPressed.right) this.cycleSelectedChar(1);
       if (input.justPressed.start) {
         this.startGame();
       }

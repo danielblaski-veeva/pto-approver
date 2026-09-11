@@ -18,7 +18,9 @@ export class InputHandler {
       attack: false,
       jump: false,
       special: false,
-      start: false
+      start: false,
+      left: false,
+      right: false
     };
 
     this.prevKeys = { ...this.keys };
@@ -100,29 +102,27 @@ export class InputHandler {
 
   pollGamepad() {
     const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
-    const gp = gamepads[0] || gamepads[1];
+    const gp = gamepads[0] || gamepads[1] || gamepads[2] || gamepads[3];
     if (!gp) return;
 
     const deadzone = 0.25;
+    const pressed = (i) => !!(gp.buttons[i] && gp.buttons[i].pressed);
 
-    // Left Stick / D-Pad
+    // --- Movement: left stick + D-pad (OR'd with keyboard, so both work) ---
     const axisX = gp.axes[0] || 0;
     const axisY = gp.axes[1] || 0;
 
-    this.keys.left = this.keys.left || (axisX < -deadzone || (gp.buttons[14] && gp.buttons[14].pressed));
-    this.keys.right = this.keys.right || (axisX > deadzone || (gp.buttons[15] && gp.buttons[15].pressed));
-    this.keys.up = this.keys.up || (axisY < -deadzone || (gp.buttons[12] && gp.buttons[12].pressed));
-    this.keys.down = this.keys.down || (axisY > deadzone || (gp.buttons[13] && gp.buttons[13].pressed));
+    this.keys.left  = this.keys.left  || axisX < -deadzone || pressed(14); // D-pad left
+    this.keys.right = this.keys.right || axisX >  deadzone || pressed(15); // D-pad right
+    this.keys.up    = this.keys.up    || axisY < -deadzone || pressed(12); // D-pad up
+    this.keys.down  = this.keys.down  || axisY >  deadzone || pressed(13); // D-pad down
 
-    // Controller Buttons:
-    // Attack: X / Square (Button 2 or 0)
-    // Jump: A / Cross (Button 0 or 1)
-    // Special: Y / Triangle (Button 3 or 2)
-    // Start: Button 9
-    this.keys.attack = this.keys.attack || (gp.buttons[2] && gp.buttons[2].pressed) || (gp.buttons[0] && gp.buttons[0].pressed && !gp.buttons[1]?.pressed);
-    this.keys.jump = this.keys.jump || (gp.buttons[1] && gp.buttons[1].pressed) || (gp.buttons[0] && gp.buttons[0].pressed);
-    this.keys.special = this.keys.special || (gp.buttons[3] && gp.buttons[3].pressed);
-    this.keys.start = this.keys.start || (gp.buttons[9] && gp.buttons[9].pressed);
+    // --- Xbox face buttons (W3C "standard" gamepad mapping) ---
+    //   A (0) = Jump   B (1) = Attack (alt)   X (2) = Attack   Y (3) = Special   Menu (9) = Start
+    this.keys.jump    = this.keys.jump    || pressed(0);
+    this.keys.attack  = this.keys.attack  || pressed(2) || pressed(1);
+    this.keys.special = this.keys.special || pressed(3);
+    this.keys.start   = this.keys.start   || pressed(9);
   }
 
   update() {
@@ -133,6 +133,8 @@ export class InputHandler {
     this.justPressed.jump = this.keys.jump && !this.prevKeys.jump;
     this.justPressed.special = this.keys.special && !this.prevKeys.special;
     this.justPressed.start = this.keys.start && !this.prevKeys.start;
+    this.justPressed.left = this.keys.left && !this.prevKeys.left;
+    this.justPressed.right = this.keys.right && !this.prevKeys.right;
 
     this.prevKeys = { ...this.keys };
   }
