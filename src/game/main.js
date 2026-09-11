@@ -137,6 +137,21 @@ class GameApp {
     });
   }
 
+  // Place the player at the standard stage-start spot: screen-x ~100 on the
+  // left, dropped onto the current stage's walkable floor. Used for the initial
+  // spawn AND every stage transition, so all three stages spawn identically.
+  spawnPlayerAtStageStart() {
+    physics.setWalkable(this.stageMgr.getWalkable());
+    const worldX = (this.stageMgr.currentStage - 1) * 800 + 100; // camera starts at the stage's left edge
+    const spawn = physics.clampSpawn(worldX, 400);
+    this.player.x = spawn.x;
+    this.player.y = spawn.y;
+    this.player.z = 0;
+    // Reseed the walkable "last good" position so the new spot isn't reverted.
+    this.player._lastWalkX = spawn.x;
+    this.player._lastWalkY = spawn.y;
+  }
+
   startGame() {
     this.player = new Player(this.selectedChar);
     this.stageMgr = new StageManager();
@@ -146,10 +161,7 @@ class GameApp {
     this.ptoItem = null;
 
     // Drop the player onto the stage's walkable path.
-    physics.setWalkable(this.stageMgr.getWalkable());
-    const spawn = physics.clampSpawn(this.player.x, this.player.y);
-    this.player.x = spawn.x;
-    this.player.y = spawn.y;
+    this.spawnPlayerAtStageStart();
 
     this.gameTimeSeconds = 300;
     this.maxCombo = 0;
@@ -293,11 +305,13 @@ class GameApp {
         physics.resolveBodies(living[a], living[b]);
       }
     }
-    // Re-clamp after pushes so nobody gets shoved off-camera or out of the floor band
+    // Re-clamp after pushes so nobody gets shoved off-camera or off the walkable
+    // floor. Body separation can nudge actors out of the polygon, so snap them
+    // back onto it (the floor band from the old physics model is gone).
     this.player.x = Math.max(camX + 40, Math.min(this.player.x, camX + 920));
-    this.player.y = Math.max(physics.floorYMin, Math.min(this.player.y, physics.floorYMax));
+    physics.clampToWalkable(this.player);
     for (const e of this.enemies) {
-      e.y = Math.max(physics.floorYMin, Math.min(e.y, physics.floorYMax));
+      physics.clampToWalkable(e);
     }
 
     // Wave Progression
@@ -308,7 +322,7 @@ class GameApp {
       } else if (this.stageMgr.currentStage < 3) {
         this.stageMgr.currentStage++;
         this.stageMgr.waveIndex = 0;
-        this.player.x += 200;
+        this.spawnPlayerAtStageStart();   // same spawn spot as stage 1
         this.showBanner(this.stageMgr.getStageTitle());
         this.spawnNextWave();
       }
