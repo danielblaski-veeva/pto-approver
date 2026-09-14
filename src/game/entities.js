@@ -182,9 +182,17 @@ export class Player {
     const knockback = isFinisher ? 18 : 8;
     sound.playSwing();
 
+    // Character-specific attack reach matching weapon visual range
+    let hitReach = isFinisher ? 110 : 90;
+    if (this.charType === 'support') {
+      hitReach = isFinisher ? 190 : 160;  // Long-range Cat-6 whip
+    } else if (this.charType === 'ps' || this.charType === 'psa') {
+      hitReach = isFinisher ? 155 : 130;  // Mid-range briefcase slash + deliverables
+    }
+
     let hitAny = false;
     enemies.forEach(e => {
-      if (physics.checkHit(this, e, isFinisher ? 85 : 70, 30, 45)) {
+      if (physics.checkHit(this, e, hitReach, 32, 45)) {
         e.takeDamage(atkDamage, this.facingLeft ? -knockback : knockback);
         hitAny = true;
         this.combo++;
@@ -197,8 +205,22 @@ export class Player {
 
         // Hit Spark Particles & Popup Text
         const sparkCount = isFinisher ? 12 : 6;
+        let sparkColor = isFinisher ? '#FF8800' : '#FFD700';
+        let hitText = isFinisher ? 'FIRED!' : 'SMASH!';
+        let hitTextColor = isFinisher ? '#FF5522' : '#FFFF00';
+
+        if (this.charType === 'support') {
+          sparkColor = isFinisher ? '#FFE600' : '#00E5FF';
+          hitText = isFinisher ? 'TRIAGED!' : 'WHIP!';
+          hitTextColor = isFinisher ? '#FFE600' : '#00E5FF';
+        } else if (this.charType === 'ps' || this.charType === 'psa') {
+          sparkColor = isFinisher ? '#00FFFF' : '#7DF9FF';
+          hitText = isFinisher ? 'CLOSED!' : 'DELIVERED!';
+          hitTextColor = isFinisher ? '#00FFFF' : '#E0F7FA';
+        }
+
         for (let i = 0; i < sparkCount; i++) {
-          particles.push(new Particle(e.x, e.y, 25, (Math.random()-0.5)*8, (Math.random()-0.5)*4, Math.random()*6, isFinisher ? '#FF8800' : '#FFD700', 4, 18));
+          particles.push(new Particle(e.x, e.y, 25, (Math.random()-0.5)*8, (Math.random()-0.5)*4, Math.random()*6, sparkColor, 4, 18));
         }
 
         if (e.type === 'grunt') {
@@ -208,7 +230,7 @@ export class Player {
           }
         }
 
-        particles.push(new Particle(e.x, e.y, 40, 0, -0.5, 2, isFinisher ? '#FF5522' : '#FFFF00', 12, 30, isFinisher ? 'FIRED!' : 'SMASH!'));
+        particles.push(new Particle(e.x, e.y, 40, 0, -0.5, 2, hitTextColor, 12, 30, hitText));
         triggerShake();
         spriteRenderer.triggerLampImpulse(isFinisher ? 1.4 : 0.7);
       }
@@ -238,14 +260,30 @@ export class Player {
         }
       });
     } else if (this.charType === 'support') {
+      this.attackTimer = 45;
+      this.invincibleTimer = 45;
       enemies.forEach(e => {
-        if (physics.checkHit(this, e, 130, 60, 60)) {
-          e.takeDamage(this.damage * 2.2, this.x < e.x ? 12 : -12);
-          this.combo += 2;
-          this.score += 300;
-          particles.push(new Particle(e.x, e.y, 45, 0, 0, 2, '#00A3E0', 12, 35, 'ESCALATED!'));
+        const dx = e.x - this.x;
+        const dy = e.y - this.y;
+        const dz = (e.z || 0) - (this.z || 0);
+        // 360-degree radial electrical surge (hits in front and behind)
+        if (!e.isDead && !e.dying && Math.abs(dx) < 185 && Math.abs(dy) < 65 && Math.abs(dz) < 60) {
+          e.takeDamage(this.damage * 2.8, dx >= 0 ? 16 : -16);
+          this.combo += 3;
+          this.score += 500;
+
+          // Electrical sparks burst
+          for (let s = 0; s < 10; s++) {
+            particles.push(new Particle(e.x, e.y, 30, (Math.random()-0.5)*9, (Math.random()-0.5)*5, Math.random()*7, s % 2 === 0 ? '#FFE600' : '#00E5FF', 4, 22));
+          }
+
+          particles.push(new Particle(e.x, e.y, 50, 0, -0.6, 2, '#00E5FF', 12, 35, 'SERVER SURGE!'));
         }
       });
+
+      // Holographic terminal alert popups
+      particles.push(new Particle(this.x, this.y, 75, 0, -0.4, 2, '#FFE600', 13, 40, 'P1 CRITICAL!'));
+      particles.push(new Particle(this.x, this.y, 95, 0, -0.3, 2, '#00FFCC', 12, 40, 'TICKET RESOLVED'));
     } else {
       for (let i = 0; i < 4; i++) {
         projectiles.push(new Projectile(this.x, this.y, 20, 'document', this.facingLeft ? -10 : 10, (i - 1.5) * 2));

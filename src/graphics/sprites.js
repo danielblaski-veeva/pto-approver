@@ -52,7 +52,10 @@ export class SpriteRenderer {
       { key: 'player_walk', src: '/assets/sprites/player_walk.png' },
       { key: 'player_attack', src: '/assets/sprites/player_attack.png' },
       { key: 'player_support', src: '/assets/sprites/player_support.png' },
+      { key: 'player_support_attack', src: '/assets/sprites/player_support_attack.png' },
+      { key: 'player_support_special', src: '/assets/sprites/player_support_special.png' },
       { key: 'player_ps', src: '/assets/sprites/player_ps.png' },
+      { key: 'player_ps_attack', src: '/assets/sprites/player_ps_attack.png' },
       { key: 'zombie_walk', src: '/assets/sprites/zombie_walk.png' },
       { key: 'zombie_attack', src: '/assets/sprites/zombie_attack.png' },
       { key: 'customer_midboss', src: '/assets/sprites/customer_midboss.png' },
@@ -277,6 +280,7 @@ export class SpriteRenderer {
   // ==========================================
   drawPlayer(ctx, player) {
     const { x, y, z, charType, state, frame, facingLeft } = player;
+    const cType = (charType || 'tech').toLowerCase();
     const drawX = Math.floor(x);
     const drawY = Math.floor(y - z);
 
@@ -298,8 +302,7 @@ export class SpriteRenderer {
 
     // Special Skill Glowing Matrix Cybernetic Aura
     if (state === 'special') {
-      ctx.save();
-      ctx.shadowColor = '#00FFCC';
+      ctx.shadowColor = cType === 'support' ? '#FFE600' : '#00FFCC';
       ctx.shadowBlur = 24;
     }
 
@@ -308,8 +311,6 @@ export class SpriteRenderer {
     let targetH = 120;
     let offsetX = -56;
     let offsetY = -120;
-
-    const cType = (charType || 'tech').toLowerCase();
 
     if (cType === 'tech') {
       if (state === 'attack') {
@@ -345,19 +346,41 @@ export class SpriteRenderer {
         offsetY = -120 + breatheY;
       }
     } else if (cType === 'support') {
-      img = this.images.player_support;
-      targetW = 99;
-      targetH = 120;
-      offsetX = -49;
-      const bobY = state === 'walk' ? Math.abs(Math.sin(frame * 0.4)) * 3 : Math.sin(this.animTime * 0.08) * 2;
-      offsetY = -120 + bobY;
+      if (state === 'special') {
+        img = this.images.player_support_special;
+        targetW = 321;
+        targetH = 179;
+        offsetX = -169;
+        offsetY = -163;
+      } else if (state === 'attack') {
+        img = this.images.player_support_attack;
+        targetW = 251;
+        targetH = 120;
+        offsetX = -50;
+        offsetY = -120;
+      } else {
+        img = this.images.player_support;
+        targetW = 99;
+        targetH = 120;
+        offsetX = -49;
+        const bobY = state === 'walk' ? Math.abs(Math.sin(frame * 0.4)) * 3 : Math.sin(this.animTime * 0.08) * 2;
+        offsetY = -120 + bobY;
+      }
     } else if (cType === 'ps' || cType === 'psa') {
-      img = this.images.player_ps;
-      targetW = 83;
-      targetH = 120;
-      offsetX = -41;
-      const bobY = state === 'walk' ? Math.abs(Math.sin(frame * 0.4)) * 3 : Math.sin(this.animTime * 0.08) * 2;
-      offsetY = -120 + bobY;
+      if (state === 'attack') {
+        img = this.images.player_ps_attack;
+        targetW = 218;
+        targetH = 120;
+        offsetX = -52;
+        offsetY = -120;
+      } else {
+        img = this.images.player_ps;
+        targetW = 83;
+        targetH = 120;
+        offsetX = -41;
+        const bobY = state === 'walk' ? Math.abs(Math.sin(frame * 0.4)) * 3 : Math.sin(this.animTime * 0.08) * 2;
+        offsetY = -120 + bobY;
+      }
     }
 
     // Attack lunge — thrust forward on the strike then snap back (all characters).
@@ -377,16 +400,30 @@ export class SpriteRenderer {
       ctx.imageSmoothingEnabled = false;
       ctx.drawImage(img, offsetX, offsetY, targetW, targetH);
     }
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = 'transparent';
 
-    // Special Skill Code Cascade FX
+    // Special Skill Visual FX
     if (state === 'special') {
-      ctx.restore();
-      ctx.fillStyle = '#00FFCC';
-      ctx.font = 'bold 11px monospace';
-      for (let i = 0; i < 6; i++) {
-        const glyphX = offsetX - 25 + Math.sin(this.animTime * 0.2 + i * 1.2) * 70;
-        const glyphY = offsetY - 15 + (this.animTime * 4.5 + i * 28) % 140;
-        ctx.fillText(String.fromCharCode(0x30A0 + (i * 11 + this.animTime) % 96), glyphX, glyphY);
+      if (cType === 'tech') {
+        ctx.fillStyle = '#00FFCC';
+        ctx.font = 'bold 11px monospace';
+        for (let i = 0; i < 6; i++) {
+          const glyphX = offsetX - 25 + Math.sin(this.animTime * 0.2 + i * 1.2) * 70;
+          const glyphY = offsetY - 15 + (this.animTime * 4.5 + i * 28) % 140;
+          ctx.fillText(String.fromCharCode(0x30A0 + (i * 11 + this.animTime) % 96), glyphX, glyphY);
+        }
+      } else if (cType === 'support') {
+        // Pulsing high-voltage floor discharge ring
+        const pulse = (this.animTime * 0.3) % (Math.PI * 2);
+        const radius = 95 + Math.sin(pulse) * 20;
+        ctx.save();
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = (Math.floor(this.animTime * 0.6) % 2 === 0) ? '#FFE600' : '#00E5FF';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, radius, radius * 0.42, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
       }
     }
 
@@ -465,7 +502,7 @@ export class SpriteRenderer {
         img = this.images.zombie_attack;
         targetW = 126;
         targetH = 120;
-        offsetX = -50;
+        offsetX = -34;
         offsetY = -120;
       } else {
         img = this.images.zombie_walk;
@@ -536,26 +573,26 @@ export class SpriteRenderer {
       if (state === 'attack' || enemy.attackCooldown > 40) {
         // Ground slam pose
         const img = this.images.manager_slam;
-        const targetW = 192;
-        const targetH = 150;
-        const offsetX = -96;
-        const offsetY = -150;
+        const targetW = 208;
+        const targetH = 161;
+        const offsetX = -71;
+        const offsetY = -161;
 
         if (img && img.complete && img.naturalWidth > 0) {
           ctx.drawImage(img, offsetX, offsetY, targetW, targetH);
         }
 
-        // Cancel Meeting Ground Slam Shockwaves
+        // Cancel Meeting Ground Slam Shockwaves centered at fists impact (x = 35)
         ctx.strokeStyle = COLOR_PALETTE.veevaOrange;
         ctx.lineWidth = 5;
         ctx.beginPath();
-        ctx.ellipse(0, 0, 115, 34, 0, 0, Math.PI * 2);
+        ctx.ellipse(35, 0, 115, 34, 0, 0, Math.PI * 2);
         ctx.stroke();
 
         ctx.strokeStyle = '#FF2244';
         ctx.lineWidth = 3;
         ctx.beginPath();
-        ctx.ellipse(0, 0, 145, 42, 0, 0, Math.PI * 2);
+        ctx.ellipse(35, 0, 145, 42, 0, 0, Math.PI * 2);
         ctx.stroke();
 
       } else {
@@ -570,12 +607,6 @@ export class SpriteRenderer {
         if (img && img.complete && img.naturalWidth > 0) {
           ctx.drawImage(img, offsetX, offsetY, targetW, targetH);
         }
-
-        // Glowing Red Rectangular Glasses Glare Pulse
-        const glareGlow = 0.6 + 0.4 * Math.sin(this.animTime * 0.15);
-        ctx.fillStyle = `rgba(255, 30, 50, ${glareGlow})`;
-        ctx.fillRect(-15, offsetY + 38, 14, 8);
-        ctx.fillRect(8, offsetY + 38, 14, 8);
       }
     }
 
