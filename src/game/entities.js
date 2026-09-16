@@ -351,8 +351,10 @@ export class Enemy {
       this.hp = 110;
       this.maxHp = 110;
       this.speed = 2.4;  // slower, more menacing advance
-      this.attackDamage = 18;
-      this.attackCooldown = 0;
+      this.attackDamage = 18; // Close-range melee laptop smash
+      this.remoteDamage = 8;  // Ranged envelope throw (reduced damage)
+      this.attackCooldown = 70 + Math.floor(Math.random() * 40); // spawn grace period before first attack
+      this.attackType = 'melee'; // 'melee' (laptop smash) or 'remote' (urgent contract throw)
       this.bodyRX = 26; this.bodyRY = 14;
     } else {
       this.hp = 320;
@@ -439,13 +441,48 @@ export class Enemy {
       // Resolve the hit/throw once, on the strike frame (just after the wind-up).
       if (!this.attackStruck && this.attackAnimTimer <= this.attackAnimDuration * 0.42) {
         this.attackStruck = true;
-        this.resolveMidbossStrike(player, projectiles, particles, triggerShake);
+        if (this.type === 'midboss' && this.attackType === 'remote') {
+          this.resolveMidbossThrow(player, projectiles, particles);
+        } else if (this.type === 'midboss') {
+          this.resolveMidbossStrike(player, projectiles, particles, triggerShake);
+        }
       }
       this.vx *= 0.8;
       this.vy *= 0.8;
     } else if (this.isHit) {
       this.vx *= 0.8;
       this.vy *= 0.8;
+    } else if (this.type === 'midboss') {
+      // Hybrid Combat AI for Customer Mid-Boss:
+      // 1. Close melee (<85px): Laptop Smash
+      // 2. Mid/long range (110px - 650px) and lined up on lane (|dy| < 45): Remote Urgent Throw across the field
+      const inMelee = dist <= 85;
+      const inThrowRange = Math.abs(dx) >= 110 && Math.abs(dx) <= 650 && Math.abs(dy) <= 45;
+
+      if (this.attackCooldown <= 0 && inMelee) {
+        this.attackType = 'melee';
+        this.attackPlayer(player, projectiles, particles, triggerShake, triggerHitstop);
+        this.vx *= 0.8;
+        this.vy *= 0.8;
+      } else if (this.attackCooldown <= 0 && inThrowRange) {
+        this.attackType = 'remote';
+        this.attackPlayer(player, projectiles, particles, triggerShake, triggerHitstop);
+        this.vx *= 0.8;
+        this.vy *= 0.8;
+      } else if (Math.abs(dy) > 40) {
+        // Lane align with player vertically so projectile can connect
+        moving = this.stepToward(dx, dy, dist, 1);
+      } else if (Math.abs(dx) > 550) {
+        // Step closer if beyond full screen range
+        moving = this.stepToward(dx, dy, dist, 1);
+      } else if (dist < 75 && this.attackCooldown > 0) {
+        // Step back slightly while on cooldown so he doesn't clip into player
+        moving = this.stepToward(dx, dy, dist, -0.6);
+      } else {
+        // Steady aim / maintain spacing
+        this.vx *= 0.8;
+        this.vy *= 0.8;
+      }
     } else if (dist > attackRange) {
       moving = this.stepToward(dx, dy, dist, 1);
     } else if (this.attackCooldown <= 0) {
@@ -471,13 +508,35 @@ export class Enemy {
   // Ease velocity toward (sign +1) or away from (sign -1) the player and step. Returns true.
   stepToward(dx, dy, dist, sign) {
     this.state = 'walk';
-    const tvx = (dx / dist) * this.speed * sign;
-    const tvy = (dy / dist) * this.speed * 0.7 * sign;
+    const d = dist > 0.001 ? dist : 1;
+    const tvx = (dx / d) * this.speed * sign;
+    const tvy = (dy / d) * this.speed * 0.7 * sign;
     this.vx += (tvx - this.vx) * 0.12;   // gentle heading changes
     this.vy += (tvy - this.vy) * 0.12;
     this.x += this.vx;
     this.y += this.vy;
     return true;
+  }
+
+  // Hurl the spinning URGENT contract paper on the strike frame
+  resolveMidbossThrow(player, projectiles, particles) {
+    const launchX = this.x + (this.facingLeft ? -48 : 48);
+    const launchY = this.y;   // Correct floor depth plane (matches player floor lane)
+    const launchZ = 30;       // Chest height above floor
+    const projVx = this.facingLeft ? -10.5 : 10.5;
+    projectiles.push(new Projectile(launchX, launchY, launchZ, 'urgent', projVx, 0, this.remoteDamage || 8));
+    sound.playSwing();
+
+    // Throw wind/action sparks
+    for (let i = 0; i < 6; i++) {
+      particles.push(new Particle(
+        launchX, launchY - launchZ, 15,
+        projVx * 0.3 + (Math.random() - 0.5) * 3,
+        (Math.random() - 0.5) * 2,
+        Math.random() * 2,
+        i % 2 === 0 ? '#FF2244' : '#FFAA00', 3, 14
+      ));
+    }
   }
 
   // Land the overhead hammer-fist on the strike frame (melee, in front of the boss)
@@ -539,7 +598,7 @@ export class Enemy {
 
   attackPlayer(player, projectiles, particles, triggerShake, triggerHitstop) {
     this.state = 'attack';
-    this.attackCooldown = this.type === 'manager' ? 60 : (this.type === 'midboss' ? 70 : 80);
+    this.attackCooldown = this.type === 'manager' ? 60 : (this.type === 'midboss' ? (this.attackType === 'remote' ? (220 + Math.floor(Math.random() * 60)) : 75) : 80);
 
     if (this.type === 'grunt') {
       if (Math.random() < 0.5) {
@@ -612,34 +671,57 @@ export class Enemy {
 
 // --- Projectile Class ---
 export class Projectile {
-  constructor(x, y, z, type, vx, vy = 0) {
+  constructor(x, y, z, type, vx, vy = 0, damage = null) {
     this.x = x;
     this.y = y;
     this.z = z;
     this.type = type;
     this.vx = vx;
     this.vy = vy;
+    this.damage = damage ?? (type === 'urgent' ? 8 : (type === 'stapler' ? 10 : 12));
     this.isDead = false;
     this.spin = 0;   // visual rotation for thrown papers
+    this.distTraveled = 0;
   }
 
-  update(player, enemies) {
+  update(player, enemies, particles, triggerShake) {
     this.x += this.vx;
     this.y += this.vy;
     this.spin += 0.3;
+    this.distTraveled += Math.hypot(this.vx, this.vy);
 
-    if (this.x < -100 || this.x > 1200) this.isDead = true;
+    // Reaches end of the field (travels across full field/screen ~1200px) or exits global world bounds
+    if (this.distTraveled > 1200 || this.x < -200 || this.x > 4000) {
+      this.isDead = true;
+      return;
+    }
 
     if (this.type === 'document') {
       enemies.forEach(e => {
-        if (!e.isDead && !e.dying && Math.abs(e.x - this.x) < 30 && Math.abs(e.y - this.y) < 25) {
+        if (!e.isDead && !e.dying && Math.abs(e.x - this.x) < 32 && Math.abs(e.y - this.y) < 28) {
           e.takeDamage(30, this.vx > 0 ? 6 : -6);
           this.isDead = true;
         }
       });
     } else {
-      if (!player.isDead && Math.abs(player.x - this.x) < 25 && Math.abs(player.y - this.y) < 20) {
-        player.takeDamage(this.damage != null ? this.damage : (this.type === 'urgent' ? 22 : 12));
+      const dx = Math.abs(player.x - this.x);
+      const dy = Math.abs(player.y - this.y);
+      const dz = Math.abs((player.z || 0) - this.z);
+
+      if (!player.isDead && dx < 36 && dy < 32 && dz < 50) {
+        player.takeDamage(this.damage);
+        if (this.type === 'urgent') {
+          sound.playHeavyHit();
+          if (typeof triggerShake === 'function') {
+            try { triggerShake(); } catch(e) { console.error('Screen shake error:', e); }
+          }
+          if (particles) {
+            particles.push(new Particle(player.x, player.y, 40, 0, 0, 2, '#FF2244', 12, 30, 'URGENT!'));
+            for (let k = 0; k < 6; k++) {
+              particles.push(new Particle(player.x, player.y, 30, (Math.random() - 0.5) * 6, (Math.random() - 0.5) * 4, Math.random() * 4, '#FF4466', 3, 16));
+            }
+          }
+        }
         this.isDead = true;
       }
     }

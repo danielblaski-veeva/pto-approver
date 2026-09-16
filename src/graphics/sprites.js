@@ -60,6 +60,7 @@ export class SpriteRenderer {
       { key: 'zombie_attack', src: '/assets/sprites/zombie_attack.png' },
       { key: 'customer_midboss', src: '/assets/sprites/customer_midboss.png' },
       { key: 'customer_attack', src: '/assets/sprites/customer_midboss_attack.png' },
+      { key: 'customer_throw', src: '/assets/sprites/customer_midboss_throw.png' },
       { key: 'manager_stand', src: '/assets/sprites/manager_stand.png' },
       { key: 'manager_slam', src: '/assets/sprites/manager_slam.png' }
     ];
@@ -523,16 +524,25 @@ export class SpriteRenderer {
       //    in on attack (same two-frame approach as the zombie grunt).
       // ------------------------------------------
       const attacking = enemy.attackAnimTimer > 0;
-      const atkImg = this.images.customer_attack;
+      const isRemote = enemy.attackType === 'remote';
+      const atkImg = isRemote ? this.images.customer_throw : this.images.customer_attack;
 
       if (attacking && atkImg && atkImg.complete && atkImg.naturalWidth > 0) {
-        // Dedicated attack-pose frame (lunge + laptop smash). Aspect-scaled and anchored
-        // so his body sits at the boss's position while the smash reaches forward (+x).
-        const ATK_H = 140;          // drawn height — smaller than the walk (lower = smaller)
-        const ATK_ANCHOR = 0.44;    // fraction of width where his body sits (higher = pulled back)
-        const ATK_RAISE = 38;       // lift the frame so the smash lands at the player's head
-        const targetW = ATK_H * (atkImg.naturalWidth / atkImg.naturalHeight);
-        ctx.drawImage(atkImg, -targetW * ATK_ANCHOR, -ATK_H - ATK_RAISE, targetW, ATK_H);
+        if (isRemote) {
+          // Dedicated overhand throw frame (pitching the URGENT contract envelope)
+          const ATK_H = 145;
+          const ATK_ANCHOR = 0.33; // Feet / body stance anchor
+          const targetW = ATK_H * (atkImg.naturalWidth / atkImg.naturalHeight);
+          ctx.drawImage(atkImg, -targetW * ATK_ANCHOR, -ATK_H, targetW, ATK_H);
+        } else {
+          // Dedicated attack-pose frame (lunge + laptop smash). Aspect-scaled and anchored
+          // so his body sits at the boss's position while the smash reaches forward (+x).
+          const ATK_H = 140;          // drawn height — smaller than the walk (lower = smaller)
+          const ATK_ANCHOR = 0.44;    // fraction of width where his body sits (higher = pulled back)
+          const ATK_RAISE = 38;       // lift the frame so the smash lands at the player's head
+          const targetW = ATK_H * (atkImg.naturalWidth / atkImg.naturalHeight);
+          ctx.drawImage(atkImg, -targetW * ATK_ANCHOR, -ATK_H - ATK_RAISE, targetW, ATK_H);
+        }
       } else {
         // Idle / walk (and graceful fallback until the attack art exists): original image
         // with the smooth walk sway + footfall bob.

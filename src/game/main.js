@@ -57,6 +57,10 @@ class GameApp {
     }, 250);
   }
 
+  triggerShake() {
+    this.triggerScreenShake();
+  }
+
   // Character roster in on-screen (left→right) order, for D-pad / arrow cycling.
   static CHAR_ORDER = ['tech', 'support', 'psa'];
 
@@ -280,8 +284,12 @@ class GameApp {
         this.startGame();
       }
     } else if (this.state === 'GAMEPLAY') {
-      this.updateGameplay();
-      this.renderGameplay();
+      try {
+        this.updateGameplay();
+        this.renderGameplay();
+      } catch (err) {
+        console.error('Gameplay frame error:', err);
+      }
     } else if (this.state === 'VICTORY' || this.state === 'GAME_OVER') {
       if (input.justPressed.start) {
         this.resetToSelectScreen();
@@ -384,7 +392,7 @@ class GameApp {
     // Update Projectiles
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const p = this.projectiles[i];
-      p.update(this.player, this.enemies);
+      p.update(this.player, this.enemies, this.particles, triggerShake);
       if (p.isDead) this.projectiles.splice(i, 1);
     }
 
