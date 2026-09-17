@@ -182,9 +182,17 @@ export class Player {
     const knockback = isFinisher ? 18 : 8;
     sound.playSwing();
 
+    // Character-specific attack reach matching weapon visual range
+    let hitReach = isFinisher ? 110 : 90;
+    if (this.charType === 'support') {
+      hitReach = isFinisher ? 190 : 160;  // Long-range Cat-6 whip
+    } else if (this.charType === 'ps' || this.charType === 'psa') {
+      hitReach = isFinisher ? 155 : 130;  // Mid-range briefcase slash + deliverables
+    }
+
     let hitAny = false;
     enemies.forEach(e => {
-      if (physics.checkHit(this, e, isFinisher ? 85 : 70, 30, 45)) {
+      if (physics.checkHit(this, e, hitReach, 32, 45)) {
         e.takeDamage(atkDamage, this.facingLeft ? -knockback : knockback);
         hitAny = true;
         this.combo++;
@@ -197,8 +205,22 @@ export class Player {
 
         // Hit Spark Particles & Popup Text
         const sparkCount = isFinisher ? 12 : 6;
+        let sparkColor = isFinisher ? '#FF8800' : '#FFD700';
+        let hitText = isFinisher ? 'FIRED!' : 'SMASH!';
+        let hitTextColor = isFinisher ? '#FF5522' : '#FFFF00';
+
+        if (this.charType === 'support') {
+          sparkColor = isFinisher ? '#FFE600' : '#00E5FF';
+          hitText = isFinisher ? 'TRIAGED!' : 'WHIP!';
+          hitTextColor = isFinisher ? '#FFE600' : '#00E5FF';
+        } else if (this.charType === 'ps' || this.charType === 'psa') {
+          sparkColor = isFinisher ? '#00FFFF' : '#7DF9FF';
+          hitText = isFinisher ? 'CLOSED!' : 'DELIVERED!';
+          hitTextColor = isFinisher ? '#00FFFF' : '#E0F7FA';
+        }
+
         for (let i = 0; i < sparkCount; i++) {
-          particles.push(new Particle(e.x, e.y, 25, (Math.random()-0.5)*8, (Math.random()-0.5)*4, Math.random()*6, isFinisher ? '#FF8800' : '#FFD700', 4, 18));
+          particles.push(new Particle(e.x, e.y, 25, (Math.random()-0.5)*8, (Math.random()-0.5)*4, Math.random()*6, sparkColor, 4, 18));
         }
 
         if (e.type === 'grunt') {
@@ -208,7 +230,7 @@ export class Player {
           }
         }
 
-        particles.push(new Particle(e.x, e.y, 40, 0, -0.5, 2, isFinisher ? '#FF5522' : '#FFFF00', 12, 30, isFinisher ? 'FIRED!' : 'SMASH!'));
+        particles.push(new Particle(e.x, e.y, 40, 0, -0.5, 2, hitTextColor, 12, 30, hitText));
         triggerShake();
         spriteRenderer.triggerLampImpulse(isFinisher ? 1.4 : 0.7);
       }
@@ -238,14 +260,30 @@ export class Player {
         }
       });
     } else if (this.charType === 'support') {
+      this.attackTimer = 45;
+      this.invincibleTimer = 45;
       enemies.forEach(e => {
-        if (physics.checkHit(this, e, 130, 60, 60)) {
-          e.takeDamage(this.damage * 2.2, this.x < e.x ? 12 : -12);
-          this.combo += 2;
-          this.score += 300;
-          particles.push(new Particle(e.x, e.y, 45, 0, 0, 2, '#00A3E0', 12, 35, 'ESCALATED!'));
+        const dx = e.x - this.x;
+        const dy = e.y - this.y;
+        const dz = (e.z || 0) - (this.z || 0);
+        // 360-degree radial electrical surge (hits in front and behind)
+        if (!e.isDead && !e.dying && Math.abs(dx) < 185 && Math.abs(dy) < 65 && Math.abs(dz) < 60) {
+          e.takeDamage(this.damage * 2.8, dx >= 0 ? 16 : -16);
+          this.combo += 3;
+          this.score += 500;
+
+          // Electrical sparks burst
+          for (let s = 0; s < 10; s++) {
+            particles.push(new Particle(e.x, e.y, 30, (Math.random()-0.5)*9, (Math.random()-0.5)*5, Math.random()*7, s % 2 === 0 ? '#FFE600' : '#00E5FF', 4, 22));
+          }
+
+          particles.push(new Particle(e.x, e.y, 50, 0, -0.6, 2, '#00E5FF', 12, 35, 'SERVER SURGE!'));
         }
       });
+
+      // Holographic terminal alert popups
+      particles.push(new Particle(this.x, this.y, 75, 0, -0.4, 2, '#FFE600', 13, 40, 'P1 CRITICAL!'));
+      particles.push(new Particle(this.x, this.y, 95, 0, -0.3, 2, '#00FFCC', 12, 40, 'TICKET RESOLVED'));
     } else {
       for (let i = 0; i < 4; i++) {
         projectiles.push(new Projectile(this.x, this.y, 20, 'document', this.facingLeft ? -10 : 10, (i - 1.5) * 2));
@@ -302,6 +340,10 @@ export class Enemy {
     this.launchBurst = false; // one-shot: spawn launch sparks on the first dying frame
     this.deathDir = 1;      // fixed side the body falls toward (stable once launched)
 
+    this.attackDamage = 10;
+    this.attackCooldown = 0;
+    this.throwCooldown = 0;
+
     if (type === 'grunt') {
       this.hp = 55;      // ~3 hits to down (Tech/PS on 3rd; Support 3-4)
       this.maxHp = 55;
@@ -313,15 +355,20 @@ export class Enemy {
       this.hp = 110;
       this.maxHp = 110;
       this.speed = 2.4;  // slower, more menacing advance
-      this.attackDamage = 18;
-      this.attackCooldown = 0;
+      this.attackDamage = 18; // Close-range melee laptop smash
+      this.remoteDamage = 8;  // Ranged envelope throw (reduced damage)
+      this.attackCooldown = 0; // ready for melee defense if rushed
+      this.throwCooldown = 50 + Math.floor(Math.random() * 30); // spawn grace period before first throw
+      this.attackType = 'melee'; // 'melee' (laptop smash) or 'remote' (urgent contract throw)
       this.bodyRX = 26; this.bodyRY = 14;
     } else {
       this.hp = 320;
       this.maxHp = 320;
       this.speed = 2.5;
       this.attackDamage = 26;
-      this.attackCooldown = 0;
+      this.attackCooldown = 30; // brief grace period on spawn before first heavy attack
+      this.attackType = 'slam';
+      this.attackAnimDuration = 48; // 24 frames windup telegraph + 24 frames strike & shockwave
       this.bodyRX = 34; this.bodyRY = 18;
     }
   }
@@ -387,27 +434,66 @@ export class Enemy {
     }
 
     if (this.attackCooldown > 0) this.attackCooldown--;
+    if (this.throwCooldown > 0) this.throwCooldown--;
 
     // Attack range must clear the body-separation distance, otherwise body collision
     // holds the enemy just outside a fixed range and it can never trigger an attack.
     // The mid-boss stops further back so its long laptop-smash lands on the player's
     // head and stops there, instead of overshooting through the body.
-    const reachBonus = this.type === 'midboss' ? 40 : 10;
+    const reachBonus = this.type === 'midboss' ? 40 : (this.type === 'manager' ? 30 : 10);
     const attackRange = this.bodyRX + (player.bodyRX || 20) + reachBonus;
 
     let moving = false;
     if (this.attackAnimTimer > 0) {
       // Committed to the attack: stay planted while wind-up -> release -> recover plays.
       // Resolve the hit/throw once, on the strike frame (just after the wind-up).
-      if (!this.attackStruck && this.attackAnimTimer <= this.attackAnimDuration * 0.42) {
+      if (!this.attackStruck && this.attackAnimTimer <= this.attackAnimDuration * 0.45) {
         this.attackStruck = true;
-        this.resolveMidbossStrike(player, projectiles, particles, triggerShake);
+        if (this.type === 'midboss' && this.attackType === 'remote') {
+          this.resolveMidbossThrow(player, projectiles, particles);
+        } else if (this.type === 'midboss') {
+          this.resolveMidbossStrike(player, projectiles, particles, triggerShake);
+        } else if (this.type === 'manager') {
+          this.resolveManagerStrike(player, projectiles, particles, triggerShake, triggerHitstop);
+        }
       }
       this.vx *= 0.8;
       this.vy *= 0.8;
     } else if (this.isHit) {
       this.vx *= 0.8;
       this.vy *= 0.8;
+    } else if (this.type === 'midboss') {
+      // Hybrid Combat AI for Customer Mid-Boss:
+      // 1. Close melee (<90px): Laptop Smash
+      // 2. Ranged (>90px up to 650px): Remote Urgent Contract Throw across the field
+      // Seamless boundary: no dead zone between melee and ranged attack.
+      const inMelee = Math.abs(dx) <= 90 && Math.abs(dy) <= 38;
+      const inThrowRange = !inMelee && Math.abs(dx) <= 650 && Math.abs(dy) <= 45;
+
+      if (inMelee && this.attackCooldown <= 0) {
+        this.attackType = 'melee';
+        this.attackPlayer(player, projectiles, particles, triggerShake, triggerHitstop);
+        this.vx *= 0.8;
+        this.vy *= 0.8;
+      } else if (inThrowRange && this.throwCooldown <= 0) {
+        this.attackType = 'remote';
+        this.attackPlayer(player, projectiles, particles, triggerShake, triggerHitstop);
+        this.vx *= 0.8;
+        this.vy *= 0.8;
+      } else if (Math.abs(dy) > 35) {
+        // Lane align with player vertically so attacks connect
+        moving = this.stepToward(dx, dy, dist, 1);
+      } else if (!inMelee && (this.throwCooldown > 0 || Math.abs(dx) > 650)) {
+        // Outside melee range and throw is on cooldown: advance to close distance and melee!
+        moving = this.stepToward(dx, dy, dist, 1);
+      } else if (inMelee && this.attackCooldown > 0 && dist < 65) {
+        // Close range but melee on cooldown: back up slightly so he doesn't clip
+        moving = this.stepToward(dx, dy, dist, -0.6);
+      } else {
+        // Steady aim / maintain spacing
+        this.vx *= 0.8;
+        this.vy *= 0.8;
+      }
     } else if (dist > attackRange) {
       moving = this.stepToward(dx, dy, dist, 1);
     } else if (this.attackCooldown <= 0) {
@@ -433,13 +519,35 @@ export class Enemy {
   // Ease velocity toward (sign +1) or away from (sign -1) the player and step. Returns true.
   stepToward(dx, dy, dist, sign) {
     this.state = 'walk';
-    const tvx = (dx / dist) * this.speed * sign;
-    const tvy = (dy / dist) * this.speed * 0.7 * sign;
+    const d = dist > 0.001 ? dist : 1;
+    const tvx = (dx / d) * this.speed * sign;
+    const tvy = (dy / d) * this.speed * 0.7 * sign;
     this.vx += (tvx - this.vx) * 0.12;   // gentle heading changes
     this.vy += (tvy - this.vy) * 0.12;
     this.x += this.vx;
     this.y += this.vy;
     return true;
+  }
+
+  // Hurl the spinning URGENT contract paper on the strike frame
+  resolveMidbossThrow(player, projectiles, particles) {
+    const launchX = this.x + (this.facingLeft ? -48 : 48);
+    const launchY = this.y;   // Correct floor depth plane (matches player floor lane)
+    const launchZ = 30;       // Chest height above floor
+    const projVx = this.facingLeft ? -10.5 : 10.5;
+    projectiles.push(new Projectile(launchX, launchY, launchZ, 'urgent', projVx, 0, this.remoteDamage || 8));
+    sound.playSwing();
+
+    // Throw wind/action sparks
+    for (let i = 0; i < 6; i++) {
+      particles.push(new Particle(
+        launchX, launchY - launchZ, 15,
+        projVx * 0.3 + (Math.random() - 0.5) * 3,
+        (Math.random() - 0.5) * 2,
+        Math.random() * 2,
+        i % 2 === 0 ? '#FF2244' : '#FFAA00', 3, 14
+      ));
+    }
   }
 
   // Land the overhead hammer-fist on the strike frame (melee, in front of the boss)
@@ -464,6 +572,66 @@ export class Enemy {
       particles.push(new Particle(this.x + front + (Math.random() - 0.5) * 22, this.y, 2,
         (Math.random() - 0.5) * 6, (Math.random() - 0.5) * 3, Math.random() * 2,
         i % 2 === 0 ? '#9A8C7A' : '#6B4A2A', 4, 18));
+    }
+  }
+
+  // Final Boss (The Manager) Strike Frame Execution:
+  // Resolves AFTER the 24-frame wind-up tell. Only damages player if in front and on the floor.
+  resolveManagerStrike(player, projectiles, particles, triggerShake, triggerHitstop) {
+    const isFacingLeft = this.facingLeft;
+    const forwardSign = isFacingLeft ? -1 : 1;
+    // player distance relative to manager front (positive = in front, negative = behind)
+    const playerRelX = (player.x - this.x) * forwardSign;
+    const dy = Math.abs(player.y - this.y);
+    const dz = Math.abs((player.z || 0) - (this.z || 0));
+
+    // Impact audio, screen shake and floor rumble always trigger on fist impact
+    sound.playHeavyHit();
+    if (triggerShake) triggerShake();
+    triggerHitstop?.(6);
+    spriteRenderer.triggerLampImpulse(2.5);
+
+    // Ground dust & sparks burst at fist contact point (in front of boss)
+    const slamX = this.x + (isFacingLeft ? -50 : 50);
+    if (particles) {
+      for (let i = 0; i < 12; i++) {
+        particles.push(new Particle(
+          slamX + (Math.random() - 0.5) * 32, this.y, 2,
+          (Math.random() - 0.5) * 9, (Math.random() - 0.5) * 4, Math.random() * 5,
+          i % 2 === 0 ? '#FF3311' : '#FFAA00', 4, 22
+        ));
+      }
+    }
+
+    if (this.attackType === 'slam') {
+      // Meeting Cancelled Ground Slam:
+      // Hits forward cone (reaches up to 130px in front, 42px lane depth)
+      // Can be completely dodged by jumping (player.z >= 32) or positioning behind boss (playerRelX < -15)
+      const inFront = playerRelX >= -15 && playerRelX <= 130;
+      const inLane = dy <= 42;
+      const onFloor = dz < 32;
+
+      if (!player.isDead && inFront && inLane && onFloor) {
+        const dmg = Math.round(this.attackDamage * 1.35); // 35 damage
+        player.takeDamage(dmg);
+        if (particles) {
+          particles.push(new Particle(player.x, player.y, 45, 0, 0, 2, '#FF1122', 13, 34, 'MEETING CANCELED!'));
+        }
+      }
+    } else {
+      // Direct Heavy Micromanaged Punch:
+      // High-impact frontal swipe (reaches 95px forward, 36px lane depth, up to 55px vertical)
+      const inFront = playerRelX >= 0 && playerRelX <= 95;
+      const inLane = dy <= 36;
+      const inHeight = dz < 55;
+
+      if (!player.isDead && inFront && inLane && inHeight) {
+        const dmg = Math.round(this.attackDamage * 1.15); // 30 damage
+        player.takeDamage(dmg);
+        if (particles) {
+          particles.push(new Particle(player.x, player.y, 45, 0, 0, 2, '#FF3344', 13, 34, 'MICROMANAGED!'));
+        }
+      }
     }
   }
 
@@ -501,7 +669,18 @@ export class Enemy {
 
   attackPlayer(player, projectiles, particles, triggerShake, triggerHitstop) {
     this.state = 'attack';
-    this.attackCooldown = this.type === 'manager' ? 60 : (this.type === 'midboss' ? 70 : 80);
+    if (this.type === 'midboss') {
+      if (this.attackType === 'remote') {
+        this.throwCooldown = 150 + Math.floor(Math.random() * 40); // slightly increased frequency (~2.5-3.1s)
+        this.attackCooldown = 35;
+      } else {
+        this.attackCooldown = 75;
+      }
+    } else if (this.type === 'manager') {
+      this.attackCooldown = 85; // recovery buffer after heavy boss attack
+    } else {
+      this.attackCooldown = 80;
+    }
 
     if (this.type === 'grunt') {
       if (Math.random() < 0.5) {
@@ -510,31 +689,18 @@ export class Enemy {
         player.takeDamage(this.attackDamage);
       }
     } else if (this.type === 'midboss') {
-      // Rear back to hurl the URGENT papers — the throw releases on the strike frame
-      // (resolveMidbossStrike, called from update).
+      // Rear back to throw papers or swing laptop — resolves on strike frame in update()
       this.attackAnimTimer = this.attackAnimDuration;
       this.attackStruck = false;
       sound.playSwing();
     } else if (this.type === 'manager') {
-      if (Math.random() < 0.5) {
-        if (physics.checkHit(this, player, 75, 35, 50)) {
-          player.takeDamage(this.attackDamage * 1.3);
-          sound.playHeavyHit();
-          particles.push(new Particle(player.x, player.y, 40, 0, 0, 2, '#FF3344', 12, 30, 'MICROMANAGED!'));
-          triggerShake();
-          triggerHitstop?.(5);
-          spriteRenderer.triggerLampImpulse(1.5);
-        }
-      } else {
-        sound.playHeavyHit();
-        triggerShake();
-        triggerHitstop?.(5);
-        spriteRenderer.triggerLampImpulse(2.5);
-        if (Math.abs(player.x - this.x) < 150 && Math.abs(player.y - this.y) < 70) {
-          player.takeDamage(this.attackDamage * 1.5);
-          particles.push(new Particle(player.x, player.y, 40, 0, 0, 2, '#FF1122', 12, 30, 'MEETING CANCELED!'));
-        }
-      }
+      // Begin telegraphed boss attack: 24-frame wind-up with audio tell and red warning aura,
+      // then strikes the floor on the strike frame in resolveManagerStrike()
+      this.attackType = Math.random() < 0.6 ? 'slam' : 'punch';
+      this.attackAnimDuration = 48;
+      this.attackAnimTimer = this.attackAnimDuration;
+      this.attackStruck = false;
+      sound.playSwing(); // Wind-up whoosh warning
     }
   }
 
@@ -574,34 +740,57 @@ export class Enemy {
 
 // --- Projectile Class ---
 export class Projectile {
-  constructor(x, y, z, type, vx, vy = 0) {
+  constructor(x, y, z, type, vx, vy = 0, damage = null) {
     this.x = x;
     this.y = y;
     this.z = z;
     this.type = type;
     this.vx = vx;
     this.vy = vy;
+    this.damage = damage ?? (type === 'urgent' ? 8 : (type === 'stapler' ? 10 : 12));
     this.isDead = false;
     this.spin = 0;   // visual rotation for thrown papers
+    this.distTraveled = 0;
   }
 
-  update(player, enemies) {
+  update(player, enemies, particles, triggerShake) {
     this.x += this.vx;
     this.y += this.vy;
     this.spin += 0.3;
+    this.distTraveled += Math.hypot(this.vx, this.vy);
 
-    if (this.x < -100 || this.x > 1200) this.isDead = true;
+    // Reaches end of the field (travels across full field/screen ~1200px) or exits global world bounds
+    if (this.distTraveled > 1200 || this.x < -200 || this.x > 4000) {
+      this.isDead = true;
+      return;
+    }
 
     if (this.type === 'document') {
       enemies.forEach(e => {
-        if (!e.isDead && !e.dying && Math.abs(e.x - this.x) < 30 && Math.abs(e.y - this.y) < 25) {
+        if (!e.isDead && !e.dying && Math.abs(e.x - this.x) < 32 && Math.abs(e.y - this.y) < 28) {
           e.takeDamage(30, this.vx > 0 ? 6 : -6);
           this.isDead = true;
         }
       });
     } else {
-      if (!player.isDead && Math.abs(player.x - this.x) < 25 && Math.abs(player.y - this.y) < 20) {
-        player.takeDamage(this.damage != null ? this.damage : (this.type === 'urgent' ? 22 : 12));
+      const dx = Math.abs(player.x - this.x);
+      const dy = Math.abs(player.y - this.y);
+      const dz = Math.abs((player.z || 0) - this.z);
+
+      if (!player.isDead && dx < 36 && dy < 32 && dz < 50) {
+        player.takeDamage(this.damage);
+        if (this.type === 'urgent') {
+          sound.playHeavyHit();
+          if (typeof triggerShake === 'function') {
+            try { triggerShake(); } catch(e) { console.error('Screen shake error:', e); }
+          }
+          if (particles) {
+            particles.push(new Particle(player.x, player.y, 40, 0, 0, 2, '#FF2244', 12, 30, 'URGENT!'));
+            for (let k = 0; k < 6; k++) {
+              particles.push(new Particle(player.x, player.y, 30, (Math.random() - 0.5) * 6, (Math.random() - 0.5) * 4, Math.random() * 4, '#FF4466', 3, 16));
+            }
+          }
+        }
         this.isDead = true;
       }
     }

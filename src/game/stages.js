@@ -62,16 +62,19 @@ export class StageManager {
       } else if (this.waveIndex === 1) {
         newEnemies.push(new Enemy(playerX + 450, 340, 'grunt'));
         newEnemies.push(new Enemy(playerX + 520, 460, 'grunt'));
-        newEnemies.push(new Enemy(playerX + 600, 400, 'midboss'));
+        newEnemies.push(new Enemy(playerX + 600, 400, 'grunt'));
       }
     } else if (this.currentStage === 2) {
       if (this.waveIndex === 0) {
-        newEnemies.push(new Enemy(playerX + 400, 350, 'grunt'));
-        newEnemies.push(new Enemy(playerX + 480, 450, 'midboss'));
+        newEnemies.push(new Enemy(playerX + 380, 350, 'grunt'));
+        newEnemies.push(new Enemy(playerX + 450, 430, 'grunt'));
+        newEnemies.push(new Enemy(playerX + 520, 380, 'grunt'));
+        newEnemies.push(new Enemy(playerX + 580, 450, 'midboss'));
       } else if (this.waveIndex === 1) {
-        newEnemies.push(new Enemy(playerX + 450, 330, 'midboss'));
-        newEnemies.push(new Enemy(playerX + 550, 420, 'grunt'));
-        newEnemies.push(new Enemy(playerX + 600, 480, 'grunt'));
+        newEnemies.push(new Enemy(playerX + 400, 340, 'grunt'));
+        newEnemies.push(new Enemy(playerX + 520, 470, 'grunt'));
+        newEnemies.push(new Enemy(playerX + 460, 400, 'midboss'));
+        newEnemies.push(new Enemy(playerX + 580, 360, 'midboss'));
       }
     } else if (this.currentStage === 3) {
       if (!this.bossSpawned) {

@@ -23,6 +23,7 @@ class GameApp {
     this.projectiles = [];
     this.particles = [];
     this.ptoItem = null;
+    this.bannerTimeout = null;
     this.stageMgr = new StageManager();
 
     this.gameTimeSeconds = 300;
@@ -54,6 +55,10 @@ class GameApp {
     setTimeout(() => {
       this.container.classList.remove('shake');
     }, 250);
+  }
+
+  triggerShake() {
+    this.triggerScreenShake();
   }
 
   // Character roster in on-screen (left→right) order, for D-pad / arrow cycling.
@@ -288,15 +293,34 @@ class GameApp {
     this.state = 'CHAR_SELECT';
   }
 
-  showBanner(text) {
+  showBanner(text, duration = 2500, subtitle = '') {
+    if (this.bannerTimeout) {
+      clearTimeout(this.bannerTimeout);
+      this.bannerTimeout = null;
+    }
     const overlay = document.getElementById('banner-overlay');
     const txt = document.getElementById('banner-text');
-    txt.innerText = text;
+    if (!overlay || !txt) return;
+
+    if (subtitle) {
+      txt.innerHTML = `<div class="banner-title">${text}</div><div class="banner-subtitle">${subtitle}</div>`;
+    } else {
+      txt.innerHTML = `<div class="banner-title">${text}</div>`;
+    }
+
+    // Retrigger CSS zoom animation
+    txt.style.animation = 'none';
+    void txt.offsetWidth; // force reflow
+    txt.style.animation = '';
+
     overlay.classList.remove('hidden');
 
-    setTimeout(() => {
-      overlay.classList.add('hidden');
-    }, 2500);
+    if (duration > 0) {
+      this.bannerTimeout = setTimeout(() => {
+        overlay.classList.add('hidden');
+        this.bannerTimeout = null;
+      }, duration);
+    }
   }
 
   spawnNextWave() {
@@ -312,9 +336,10 @@ class GameApp {
 
     this.enemies.push(...newEnemies);
 
-    if (this.stageMgr.currentStage === 3 && this.stageMgr.bossSpawned) {
+    const hasBoss = newEnemies.some(e => e.type === 'manager');
+    if (hasBoss) {
       sound.playBossWarning();
-      this.showBanner('WARNING: MANAGER APPROACHING!');
+      this.showBanner('WARNING: THE MANAGER APPROACHES!');
     }
   }
 
@@ -341,8 +366,12 @@ class GameApp {
         this.finishCinematic();
       }
     } else if (this.state === 'GAMEPLAY') {
-      this.updateGameplay();
-      this.renderGameplay();
+      try {
+        this.updateGameplay();
+        this.renderGameplay();
+      } catch (err) {
+        console.error('Gameplay frame error:', err);
+      }
     } else if (this.state === 'VICTORY' || this.state === 'GAME_OVER') {
       if (input.justPressed.start) {
         this.resetToSelectScreen();
@@ -396,6 +425,11 @@ class GameApp {
         if (e.type === 'manager' && !this.ptoItem) {
           this.ptoItem = new PTOItem(e.x, e.y);
           sound.playVictory();
+          this.showBanner(
+            'BOSS DEFEATED!',
+            10000,
+            '★ PICK UP YOUR APPROVED PTO CONFIRMATION! ★'
+          );
         }
 
         this.enemies.splice(i, 1);
@@ -422,36 +456,38 @@ class GameApp {
     }
 
     // Wave Progression
-    if (this.enemies.length === 0) {
-      if (this.stageMgr.waveIndex < 1) {
-        this.stageMgr.waveIndex++;
-        this.spawnNextWave();
-      } else if (this.stageMgr.currentStage < 3) {
-        this.stageMgr.currentStage++;
-        this.stageMgr.waveIndex = 0;
-        this.spawnPlayerAtStageStart();   // same spawn spot as stage 1
+    if (this.enemies.length === 0 && !this.ptoItem) {
+      if (this.stageMgr.currentStage < 3) {
+        if (this.stageMgr.waveIndex < 1) {
+          this.stageMgr.waveIndex++;
+          this.spawnNextWave();
+        } else {
+          this.stageMgr.currentStage++;
+          this.stageMgr.waveIndex = 0;
+          this.spawnPlayerAtStageStart();   // same spawn spot as stage 1
 
-        if (this.stageMgr.currentStage === 3) {
-          // Entering the final stage: play the pre-boss cinematic, then reveal
-          // stage 3 and spawn the Manager once it finishes (or is skipped).
-          this.playCinematic('preboss', () => {
-            this.state = 'GAMEPLAY';
-            this.showBanner(this.stageMgr.getStageTitle());
-            this.spawnNextWave();
-            sound.startBGM();
-          });
-          return;   // state is now CINEMATIC — stop processing this frame
+          if (this.stageMgr.currentStage === 3) {
+            // Entering the final stage: play the pre-boss cinematic, then reveal
+            // stage 3 and spawn the Manager once it finishes (or is skipped).
+            this.playCinematic('preboss', () => {
+              this.state = 'GAMEPLAY';
+              this.showBanner(this.stageMgr.getStageTitle());
+              this.spawnNextWave();
+              sound.startBGM();
+            });
+            return;   // state is now CINEMATIC — stop processing this frame
+          }
+
+          this.showBanner(this.stageMgr.getStageTitle());
+          this.spawnNextWave();
         }
-
-        this.showBanner(this.stageMgr.getStageTitle());
-        this.spawnNextWave();
       }
     }
 
     // Update Projectiles
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const p = this.projectiles[i];
-      p.update(this.player, this.enemies);
+      p.update(this.player, this.enemies, this.particles, triggerShake);
       if (p.isDead) this.projectiles.splice(i, 1);
     }
 
@@ -495,6 +531,11 @@ class GameApp {
     const secs = (this.gameTimeSeconds % 60).toString().padStart(2, '0');
     document.getElementById('hud-timer').innerText = `${mins}:${secs}`;
 
+    const stageTitleEl = document.getElementById('stage-title');
+    if (stageTitleEl) {
+      stageTitleEl.innerText = this.stageMgr.getStageTitle();
+    }
+
     document.getElementById('hud-score').innerText = this.player.score.toString().padStart(6, '0');
 
     // Final-boss (manager) HP bar, top-right — shown only while it lives
@@ -533,6 +574,7 @@ class GameApp {
   }
 
   renderGameplay() {
+    this.ctx.setTransform(1, 0, 0, 1, 0, 0);
     const camX = this.stageMgr.cameraX;
 
     this.ctx.clearRect(0, 0, 960, 540);
@@ -704,6 +746,13 @@ class GameApp {
   }
 
   triggerEndGame(isVictory) {
+    if (this.bannerTimeout) {
+      clearTimeout(this.bannerTimeout);
+      this.bannerTimeout = null;
+    }
+    const bannerOverlay = document.getElementById('banner-overlay');
+    if (bannerOverlay) bannerOverlay.classList.add('hidden');
+
     this.state = isVictory ? 'VICTORY' : 'GAME_OVER';
 
     const endScreen = document.getElementById('screen-game-end');

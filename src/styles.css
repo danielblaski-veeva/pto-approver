@@ -233,6 +233,7 @@ canvas#game-canvas {
   font-size: 10px;
   color: var(--veeva-orange);
   letter-spacing: 1px;
+  white-space: nowrap;
 }
 
 .hud-timer-container {
@@ -522,6 +523,14 @@ canvas#game-canvas {
   text-shadow: 2px 2px 0 #000, 0 0 12px var(--veeva-orange);
   letter-spacing: 2px;
   animation: banner-zoom 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.banner-subtitle {
+  font-size: 13px;
+  color: #00FFCC;
+  margin-top: 8px;
+  letter-spacing: 1.5px;
+  text-shadow: 1px 1px 0 #000, 0 0 10px rgba(0, 255, 204, 0.7);
 }
 
 @keyframes banner-zoom {
