@@ -580,8 +580,42 @@ export class SpriteRenderer {
       // ------------------------------------------
       // 3. THE MANAGER (Final Boss)
       // ------------------------------------------
-      if (state === 'attack' || enemy.attackCooldown > 40) {
-        // Ground slam pose
+      const isAttacking = (state === 'attack' || enemy.attackAnimTimer > 0);
+      const isWindup = isAttacking && !enemy.attackStruck;
+      const isSlamImpact = isAttacking && enemy.attackStruck;
+
+      if (isWindup) {
+        // Wind-up: standing tall, tensing upward with red alert aura and telegraph exclamation
+        const img = this.images.manager_stand;
+        const targetW = 162;
+        const targetH = 170;
+        const offsetX = -81;
+        const offsetY = -176; // lifted slightly as windup tell
+
+        if (img && img.complete && img.naturalWidth > 0) {
+          ctx.drawImage(img, offsetX, offsetY, targetW, targetH);
+        }
+
+        // Menacing red aura pulse
+        ctx.save();
+        ctx.fillStyle = 'rgba(255, 30, 50, 0.22)';
+        ctx.beginPath();
+        ctx.arc(0, -90, 75, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Telegraph "!" exclamation badge over head
+        const iconY = -195;
+        ctx.fillStyle = '#FF1133';
+        ctx.beginPath();
+        ctx.arc(0, iconY, 14, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = 'bold 16px monospace';
+        ctx.fillText('!', -4, iconY + 5);
+        ctx.restore();
+
+      } else if (isSlamImpact) {
+        // Ground slam pose on and after impact frame
         const img = this.images.manager_slam;
         const targetW = 208;
         const targetH = 161;
@@ -592,17 +626,25 @@ export class SpriteRenderer {
           ctx.drawImage(img, offsetX, offsetY, targetW, targetH);
         }
 
-        // Cancel Meeting Ground Slam Shockwaves centered at fists impact (x = 35)
-        ctx.strokeStyle = COLOR_PALETTE.veevaOrange;
+        // Expanding shockwave rings (animated outward as recovery timer counts down)
+        const maxAnim = (enemy.attackAnimDuration || 48) * 0.45;
+        const progress = Math.max(0, Math.min(1, 1 - (enemy.attackAnimTimer / maxAnim)));
+        const ring1W = 55 + progress * 75;
+        const ring1H = 18 + progress * 20;
+        const ring2W = 75 + progress * 85;
+        const ring2H = 24 + progress * 24;
+        const alpha = Math.max(0, 1 - progress * 0.85);
+
+        ctx.strokeStyle = `rgba(255, 120, 20, ${alpha})`;
         ctx.lineWidth = 5;
         ctx.beginPath();
-        ctx.ellipse(35, 0, 115, 34, 0, 0, Math.PI * 2);
+        ctx.ellipse(35, 0, ring1W, ring1H, 0, 0, Math.PI * 2);
         ctx.stroke();
 
-        ctx.strokeStyle = '#FF2244';
+        ctx.strokeStyle = `rgba(255, 30, 50, ${alpha * 0.8})`;
         ctx.lineWidth = 3;
         ctx.beginPath();
-        ctx.ellipse(35, 0, 145, 42, 0, 0, Math.PI * 2);
+        ctx.ellipse(35, 0, ring2W, ring2H, 0, 0, Math.PI * 2);
         ctx.stroke();
 
       } else {

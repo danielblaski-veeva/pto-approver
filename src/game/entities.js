@@ -340,6 +340,10 @@ export class Enemy {
     this.launchBurst = false; // one-shot: spawn launch sparks on the first dying frame
     this.deathDir = 1;      // fixed side the body falls toward (stable once launched)
 
+    this.attackDamage = 10;
+    this.attackCooldown = 0;
+    this.throwCooldown = 0;
+
     if (type === 'grunt') {
       this.hp = 55;      // ~3 hits to down (Tech/PS on 3rd; Support 3-4)
       this.maxHp = 55;
@@ -353,7 +357,8 @@ export class Enemy {
       this.speed = 2.4;  // slower, more menacing advance
       this.attackDamage = 18; // Close-range melee laptop smash
       this.remoteDamage = 8;  // Ranged envelope throw (reduced damage)
-      this.attackCooldown = 70 + Math.floor(Math.random() * 40); // spawn grace period before first attack
+      this.attackCooldown = 0; // ready for melee defense if rushed
+      this.throwCooldown = 50 + Math.floor(Math.random() * 30); // spawn grace period before first throw
       this.attackType = 'melee'; // 'melee' (laptop smash) or 'remote' (urgent contract throw)
       this.bodyRX = 26; this.bodyRY = 14;
     } else {
@@ -361,7 +366,9 @@ export class Enemy {
       this.maxHp = 320;
       this.speed = 2.5;
       this.attackDamage = 26;
-      this.attackCooldown = 0;
+      this.attackCooldown = 30; // brief grace period on spawn before first heavy attack
+      this.attackType = 'slam';
+      this.attackAnimDuration = 48; // 24 frames windup telegraph + 24 frames strike & shockwave
       this.bodyRX = 34; this.bodyRY = 18;
     }
   }
@@ -427,24 +434,27 @@ export class Enemy {
     }
 
     if (this.attackCooldown > 0) this.attackCooldown--;
+    if (this.throwCooldown > 0) this.throwCooldown--;
 
     // Attack range must clear the body-separation distance, otherwise body collision
     // holds the enemy just outside a fixed range and it can never trigger an attack.
     // The mid-boss stops further back so its long laptop-smash lands on the player's
     // head and stops there, instead of overshooting through the body.
-    const reachBonus = this.type === 'midboss' ? 40 : 10;
+    const reachBonus = this.type === 'midboss' ? 40 : (this.type === 'manager' ? 30 : 10);
     const attackRange = this.bodyRX + (player.bodyRX || 20) + reachBonus;
 
     let moving = false;
     if (this.attackAnimTimer > 0) {
       // Committed to the attack: stay planted while wind-up -> release -> recover plays.
       // Resolve the hit/throw once, on the strike frame (just after the wind-up).
-      if (!this.attackStruck && this.attackAnimTimer <= this.attackAnimDuration * 0.42) {
+      if (!this.attackStruck && this.attackAnimTimer <= this.attackAnimDuration * 0.45) {
         this.attackStruck = true;
         if (this.type === 'midboss' && this.attackType === 'remote') {
           this.resolveMidbossThrow(player, projectiles, particles);
         } else if (this.type === 'midboss') {
           this.resolveMidbossStrike(player, projectiles, particles, triggerShake);
+        } else if (this.type === 'manager') {
+          this.resolveManagerStrike(player, projectiles, particles, triggerShake, triggerHitstop);
         }
       }
       this.vx *= 0.8;
@@ -454,29 +464,30 @@ export class Enemy {
       this.vy *= 0.8;
     } else if (this.type === 'midboss') {
       // Hybrid Combat AI for Customer Mid-Boss:
-      // 1. Close melee (<85px): Laptop Smash
-      // 2. Mid/long range (110px - 650px) and lined up on lane (|dy| < 45): Remote Urgent Throw across the field
-      const inMelee = dist <= 85;
-      const inThrowRange = Math.abs(dx) >= 110 && Math.abs(dx) <= 650 && Math.abs(dy) <= 45;
+      // 1. Close melee (<90px): Laptop Smash
+      // 2. Ranged (>90px up to 650px): Remote Urgent Contract Throw across the field
+      // Seamless boundary: no dead zone between melee and ranged attack.
+      const inMelee = Math.abs(dx) <= 90 && Math.abs(dy) <= 38;
+      const inThrowRange = !inMelee && Math.abs(dx) <= 650 && Math.abs(dy) <= 45;
 
-      if (this.attackCooldown <= 0 && inMelee) {
+      if (inMelee && this.attackCooldown <= 0) {
         this.attackType = 'melee';
         this.attackPlayer(player, projectiles, particles, triggerShake, triggerHitstop);
         this.vx *= 0.8;
         this.vy *= 0.8;
-      } else if (this.attackCooldown <= 0 && inThrowRange) {
+      } else if (inThrowRange && this.throwCooldown <= 0) {
         this.attackType = 'remote';
         this.attackPlayer(player, projectiles, particles, triggerShake, triggerHitstop);
         this.vx *= 0.8;
         this.vy *= 0.8;
-      } else if (Math.abs(dy) > 40) {
-        // Lane align with player vertically so projectile can connect
+      } else if (Math.abs(dy) > 35) {
+        // Lane align with player vertically so attacks connect
         moving = this.stepToward(dx, dy, dist, 1);
-      } else if (Math.abs(dx) > 550) {
-        // Step closer if beyond full screen range
+      } else if (!inMelee && (this.throwCooldown > 0 || Math.abs(dx) > 650)) {
+        // Outside melee range and throw is on cooldown: advance to close distance and melee!
         moving = this.stepToward(dx, dy, dist, 1);
-      } else if (dist < 75 && this.attackCooldown > 0) {
-        // Step back slightly while on cooldown so he doesn't clip into player
+      } else if (inMelee && this.attackCooldown > 0 && dist < 65) {
+        // Close range but melee on cooldown: back up slightly so he doesn't clip
         moving = this.stepToward(dx, dy, dist, -0.6);
       } else {
         // Steady aim / maintain spacing
@@ -564,6 +575,66 @@ export class Enemy {
     }
   }
 
+  // Final Boss (The Manager) Strike Frame Execution:
+  // Resolves AFTER the 24-frame wind-up tell. Only damages player if in front and on the floor.
+  resolveManagerStrike(player, projectiles, particles, triggerShake, triggerHitstop) {
+    const isFacingLeft = this.facingLeft;
+    const forwardSign = isFacingLeft ? -1 : 1;
+    // player distance relative to manager front (positive = in front, negative = behind)
+    const playerRelX = (player.x - this.x) * forwardSign;
+    const dy = Math.abs(player.y - this.y);
+    const dz = Math.abs((player.z || 0) - (this.z || 0));
+
+    // Impact audio, screen shake and floor rumble always trigger on fist impact
+    sound.playHeavyHit();
+    if (triggerShake) triggerShake();
+    triggerHitstop?.(6);
+    spriteRenderer.triggerLampImpulse(2.5);
+
+    // Ground dust & sparks burst at fist contact point (in front of boss)
+    const slamX = this.x + (isFacingLeft ? -50 : 50);
+    if (particles) {
+      for (let i = 0; i < 12; i++) {
+        particles.push(new Particle(
+          slamX + (Math.random() - 0.5) * 32, this.y, 2,
+          (Math.random() - 0.5) * 9, (Math.random() - 0.5) * 4, Math.random() * 5,
+          i % 2 === 0 ? '#FF3311' : '#FFAA00', 4, 22
+        ));
+      }
+    }
+
+    if (this.attackType === 'slam') {
+      // Meeting Cancelled Ground Slam:
+      // Hits forward cone (reaches up to 130px in front, 42px lane depth)
+      // Can be completely dodged by jumping (player.z >= 32) or positioning behind boss (playerRelX < -15)
+      const inFront = playerRelX >= -15 && playerRelX <= 130;
+      const inLane = dy <= 42;
+      const onFloor = dz < 32;
+
+      if (!player.isDead && inFront && inLane && onFloor) {
+        const dmg = Math.round(this.attackDamage * 1.35); // 35 damage
+        player.takeDamage(dmg);
+        if (particles) {
+          particles.push(new Particle(player.x, player.y, 45, 0, 0, 2, '#FF1122', 13, 34, 'MEETING CANCELED!'));
+        }
+      }
+    } else {
+      // Direct Heavy Micromanaged Punch:
+      // High-impact frontal swipe (reaches 95px forward, 36px lane depth, up to 55px vertical)
+      const inFront = playerRelX >= 0 && playerRelX <= 95;
+      const inLane = dy <= 36;
+      const inHeight = dz < 55;
+
+      if (!player.isDead && inFront && inLane && inHeight) {
+        const dmg = Math.round(this.attackDamage * 1.15); // 30 damage
+        player.takeDamage(dmg);
+        if (particles) {
+          particles.push(new Particle(player.x, player.y, 45, 0, 0, 2, '#FF3344', 13, 34, 'MICROMANAGED!'));
+        }
+      }
+    }
+  }
+
   // Decaying horizontal knockback shove
   applyKnockback() {
     if (this.knockbackVx !== 0) {
@@ -598,7 +669,18 @@ export class Enemy {
 
   attackPlayer(player, projectiles, particles, triggerShake, triggerHitstop) {
     this.state = 'attack';
-    this.attackCooldown = this.type === 'manager' ? 60 : (this.type === 'midboss' ? (this.attackType === 'remote' ? (220 + Math.floor(Math.random() * 60)) : 75) : 80);
+    if (this.type === 'midboss') {
+      if (this.attackType === 'remote') {
+        this.throwCooldown = 150 + Math.floor(Math.random() * 40); // slightly increased frequency (~2.5-3.1s)
+        this.attackCooldown = 35;
+      } else {
+        this.attackCooldown = 75;
+      }
+    } else if (this.type === 'manager') {
+      this.attackCooldown = 85; // recovery buffer after heavy boss attack
+    } else {
+      this.attackCooldown = 80;
+    }
 
     if (this.type === 'grunt') {
       if (Math.random() < 0.5) {
@@ -607,31 +689,18 @@ export class Enemy {
         player.takeDamage(this.attackDamage);
       }
     } else if (this.type === 'midboss') {
-      // Rear back to hurl the URGENT papers — the throw releases on the strike frame
-      // (resolveMidbossStrike, called from update).
+      // Rear back to throw papers or swing laptop — resolves on strike frame in update()
       this.attackAnimTimer = this.attackAnimDuration;
       this.attackStruck = false;
       sound.playSwing();
     } else if (this.type === 'manager') {
-      if (Math.random() < 0.5) {
-        if (physics.checkHit(this, player, 75, 35, 50)) {
-          player.takeDamage(this.attackDamage * 1.3);
-          sound.playHeavyHit();
-          particles.push(new Particle(player.x, player.y, 40, 0, 0, 2, '#FF3344', 12, 30, 'MICROMANAGED!'));
-          triggerShake();
-          triggerHitstop?.(5);
-          spriteRenderer.triggerLampImpulse(1.5);
-        }
-      } else {
-        sound.playHeavyHit();
-        triggerShake();
-        triggerHitstop?.(5);
-        spriteRenderer.triggerLampImpulse(2.5);
-        if (Math.abs(player.x - this.x) < 150 && Math.abs(player.y - this.y) < 70) {
-          player.takeDamage(this.attackDamage * 1.5);
-          particles.push(new Particle(player.x, player.y, 40, 0, 0, 2, '#FF1122', 12, 30, 'MEETING CANCELED!'));
-        }
-      }
+      // Begin telegraphed boss attack: 24-frame wind-up with audio tell and red warning aura,
+      // then strikes the floor on the strike frame in resolveManagerStrike()
+      this.attackType = Math.random() < 0.6 ? 'slam' : 'punch';
+      this.attackAnimDuration = 48;
+      this.attackAnimTimer = this.attackAnimDuration;
+      this.attackStruck = false;
+      sound.playSwing(); // Wind-up whoosh warning
     }
   }
 
