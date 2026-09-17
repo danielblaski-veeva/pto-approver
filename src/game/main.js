@@ -78,7 +78,76 @@ class GameApp {
   // Show/hide the "controller connected" badge to match the gamepad state.
   updateGamepadBadge() {
     const badge = document.getElementById('gamepad-badge');
-    if (badge) badge.classList.toggle('hidden', !input.gamepadConnected);
+    if (badge) badge.style.display = input.gamepadConnected ? 'block' : 'none';
+  }
+
+  // Cinematic sources (served from public/ at the site root — see the README in
+  // public/assets/cinematics/). A missing file is skipped gracefully.
+  static CINEMATICS = {
+    intro:   '/assets/cinematics/intro.mp4',
+    preboss: '/assets/cinematics/preboss.mp4',
+    ending:  '/assets/cinematics/ending.mp4',
+  };
+
+  // Play a full-screen cinematic, then run onComplete(). Enters the CINEMATIC
+  // state so the game loop pauses everything until the video ends or is skipped.
+  // Robust to a missing/unplayable file: it just calls onComplete() and moves on.
+  playCinematic(key, onComplete) {
+    const src = GameApp.CINEMATICS[key];
+    const overlay = document.getElementById('cinematic-overlay');
+    const video = document.getElementById('cinematic-video');
+
+    this.state = 'CINEMATIC';
+    this._cinematicDone = onComplete || (() => {});
+    this._cinematicKey = key;
+    sound.stopBGM();   // silence gameplay music so the video's audio is clear
+
+    // No <video> element (or nothing to show) → skip straight through.
+    if (!overlay || !video || !src) { this.finishCinematic(); return; }
+
+    // `once`-style single-shot handlers: end or error both finish the cinematic.
+    video.onended = () => this.finishCinematic();
+    video.onerror = () => {
+      console.warn(`[cinematic] could not load ${src} — skipping`);
+      this.finishCinematic();
+    };
+
+    video.src = src;
+    overlay.style.display = 'flex';   // reveal the overlay (see index.html note)
+    try { video.currentTime = 0; } catch { /* not seekable yet — ignore */ }
+
+    // Autoplay may reject if the browser hasn't seen enough interaction; since
+    // every cinematic follows a button press this normally succeeds, but if it
+    // doesn't we skip rather than soft-lock.
+    const p = video.play();
+    if (p && typeof p.catch === 'function') {
+      p.catch((err) => {
+        console.warn('[cinematic] autoplay blocked — skipping', err);
+        this.finishCinematic();
+      });
+    }
+  }
+
+  // Tear down the current cinematic and hand control to its completion callback.
+  // Guarded so it only fires once even if end + skip race each other.
+  finishCinematic() {
+    if (this.state !== 'CINEMATIC') return;  // already finished / not playing
+    const overlay = document.getElementById('cinematic-overlay');
+    const video = document.getElementById('cinematic-video');
+    if (video) {
+      video.onended = null;
+      video.onerror = null;
+      video.pause();
+      video.removeAttribute('src');
+      video.load();   // release the buffered file
+    }
+    if (overlay) overlay.style.display = 'none';
+
+    const done = this._cinematicDone;
+    this._cinematicDone = null;
+    this._cinematicKey = null;
+    this.state = 'GAMEPLAY';   // provisional; the callback sets the real next state
+    if (done) done();
   }
 
   initDOMEvents() {
@@ -88,7 +157,7 @@ class GameApp {
     });
 
     document.getElementById('btn-start-game').addEventListener('click', () => {
-      this.startGame();
+      this.confirmCharacterSelect();
     });
 
     document.getElementById('btn-restart').addEventListener('click', () => {
@@ -171,6 +240,14 @@ class GameApp {
     // Reseed the walkable "last good" position so the new spot isn't reverted.
     this.player._lastWalkX = spawn.x;
     this.player._lastWalkY = spawn.y;
+  }
+
+  // Single entry point for leaving character select: play the intro cinematic,
+  // then start the match. Used by BOTH the Start button/key and the gamepad, so
+  // neither path can bypass the intro. Guarded to CHAR_SELECT so it can't double-fire.
+  confirmCharacterSelect() {
+    if (this.state !== 'CHAR_SELECT') return;
+    this.playCinematic('intro', () => this.startGame());
   }
 
   startGame() {
@@ -256,7 +333,12 @@ class GameApp {
       if (input.justPressed.left) this.cycleSelectedChar(-1);
       if (input.justPressed.right) this.cycleSelectedChar(1);
       if (input.justPressed.start) {
-        this.startGame();
+        this.confirmCharacterSelect();   // plays intro, then starts
+      }
+    } else if (this.state === 'CINEMATIC') {
+      // Any action button skips the current cinematic.
+      if (input.justPressed.start || input.justPressed.jump || input.justPressed.attack) {
+        this.finishCinematic();
       }
     } else if (this.state === 'GAMEPLAY') {
       this.updateGameplay();
@@ -348,6 +430,19 @@ class GameApp {
         this.stageMgr.currentStage++;
         this.stageMgr.waveIndex = 0;
         this.spawnPlayerAtStageStart();   // same spawn spot as stage 1
+
+        if (this.stageMgr.currentStage === 3) {
+          // Entering the final stage: play the pre-boss cinematic, then reveal
+          // stage 3 and spawn the Manager once it finishes (or is skipped).
+          this.playCinematic('preboss', () => {
+            this.state = 'GAMEPLAY';
+            this.showBanner(this.stageMgr.getStageTitle());
+            this.spawnNextWave();
+            sound.startBGM();
+          });
+          return;   // state is now CINEMATIC — stop processing this frame
+        }
+
         this.showBanner(this.stageMgr.getStageTitle());
         this.spawnNextWave();
       }
@@ -371,7 +466,9 @@ class GameApp {
     if (this.ptoItem) {
       this.ptoItem.update(this.player);
       if (this.ptoItem.isPickedUp) {
-        this.triggerEndGame(true);
+        // Victory: play the ending cinematic, then show the results screen.
+        this.playCinematic('ending', () => this.triggerEndGame(true));
+        return;   // state is now CINEMATIC — stop processing this frame
       }
     }
 

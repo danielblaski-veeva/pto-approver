@@ -201,7 +201,13 @@
   </div>
 
   <!-- Controller-connected indicator (toggled by GameApp.updateGamepadBadge) -->
-  <div id="gamepad-badge" class="hidden" style="position:fixed;bottom:12px;left:12px;z-index:9999;background:rgba(16,20,28,.85);color:#4fd08a;border:1px solid #2b7a4b;border-radius:8px;padding:6px 12px;font:600 12px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.3px;pointer-events:none;">🎮 Controller connected</div>
+  <div id="gamepad-badge" style="display:none;position:fixed;bottom:12px;left:12px;z-index:9999;background:rgba(16,20,28,.85);color:#4fd08a;border:1px solid #2b7a4b;border-radius:8px;padding:6px 12px;font:600 12px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.3px;pointer-events:none;">🎮 Controller connected</div>
+
+  <!-- Cinematic video overlay (driven by GameApp.playCinematic / finishCinematic) -->
+  <div id="cinematic-overlay" style="display:none;position:fixed;inset:0;z-index:10000;background:#000;align-items:center;justify-content:center;">
+    <video id="cinematic-video" playsinline preload="auto" style="max-width:100%;max-height:100%;width:auto;height:auto;"></video>
+    <div id="cinematic-skip" style="position:absolute;bottom:20px;right:24px;color:rgba(255,255,255,.85);background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.25);border-radius:6px;padding:6px 12px;font:600 12px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.5px;pointer-events:none;">SKIP ▶ &nbsp;START / A</div>
+  </div>
 
   <script type="module" src="/src/game/main.js"></script>
 </body>
